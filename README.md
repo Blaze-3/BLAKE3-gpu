@@ -11,3 +11,7 @@ We try to extract as much of that parallelism as possible by using GPUs.
 - [ ] Rewrite it again, in CUDA C++
 - [ ] Make sure all the tests pass
 - [ ] Optimize it, fix memory bandwidth issues if they exist
+
+## Development
+The `basic` directory has the reference implementations.
+Complete them first. The blake3 paper is also here for reference.
