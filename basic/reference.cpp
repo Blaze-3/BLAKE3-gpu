@@ -3,19 +3,20 @@ using namespace std;
 
 using u32 = unsigned int;
 using u64 = unsigned long;
+using u8  = unsigned char;
  
-unsigned int OUT_LEN = 32;
-unsigned int KEY_LEN = 32;
-unsigned int BLOCK_LEN = 64;
-unsigned int CHUNK_LEN = 1024;
+const u32 OUT_LEN = 32;
+const u32 KEY_LEN = 32;
+const u32 BLOCK_LEN = 64;
+const u32 CHUNK_LEN = 1024;
 
-unsigned int CHUNK_START = 1 << 0;
-unsigned int CHUNK_END = 1 << 1;
-unsigned int PARENT = 1 << 2;
-unsigned int ROOT = 1 << 3;
-unsigned int KEYED_HASH = 1 << 4;
-unsigned int DERIVE_KEY_CONTEXT = 1 << 5;
-unsigned int DERIVE_KEY_MATERIAL = 1 << 6;
+const u32 CHUNK_START = 1 << 0;
+const u32 CHUNK_END = 1 << 1;
+const u32 PARENT = 1 << 2;
+const u32 ROOT = 1 << 3;
+const u32 KEYED_HASH = 1 << 4;
+const u32 DERIVE_KEY_CONTEXT = 1 << 5;
+const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 unsigned int IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
@@ -88,6 +89,42 @@ u32* compress(
 
     return state;
 }
+
+u32* first_8_words(u32 compression_output[16]) {
+    u32 *cmprs = new u32[8];
+    copy(compression_output, compression_output+8, cmprs);
+    return cmprs;
+}
+
+void words_from_little_endian_bytes(u8 bytes, u32 words) {
+
+}
+
+struct Output {
+    u32 input_chaining_value[8];
+    u32 block_words[16];
+    u64 counter;
+    u32 block_len;
+    u32 flags;
+
+    // methods
+    u32* chaining_value();
+    void root_output_bytes(u8 out_slice);
+};
+
+struct ChunkState {
+    u32 chaining_value[8];
+    u64 chunk_counter;
+    u8 block[BLOCK_LEN];
+    u8 block_len, blocks_compressed, flags;
+
+    // methods
+    ChunkState(u32 key[8], u64 chunk_counter, u32 flags);
+    size_t len();
+    u32 start_flag();
+    void update(u8 input);
+    Output output();
+};
 
 int main() {
     cout << "cats\n";
