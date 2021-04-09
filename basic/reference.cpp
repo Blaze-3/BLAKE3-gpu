@@ -1,6 +1,8 @@
 #include <iostream>
 using namespace std;
 
+#define INT_BITS sizeof(int)*8
+
 using u32 = unsigned int;
 using u64 = unsigned long;
 using u8  = unsigned char;
@@ -28,8 +30,51 @@ unsigned int MSG_PERMUTATION[] = {
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
-void round(u32 state[16], u32 m[16]) {
+int leftRotate(int n, unsigned int d)
+{
+      
+    /* In n<<d, last d bits are 0. To
+     put first 3 bits of n at 
+    last, do bitwise or of n<<d 
+    with n >>(INT_BITS - d) */
+    return (n << d)|(n >> (INT_BITS - d));
+}
 
+int rightRotate(int n, unsigned int d)
+{
+    /* In n>>d, first d bits are 0. 
+    To put last 3 bits of at 
+    first, do bitwise or of n>>d
+    with n <<(INT_BITS - d) */
+    return (n >> d)|(n << (INT_BITS - d));
+}
+
+void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my)
+{
+    state[a]=state[a]+state[b]+state[mx];
+    state[d]=rightRotate((state[d] ^ state[a]),16);
+    state[c]=state[c]+state[d];
+
+    state[b]=rightRotate((state[b] ^ state[c]),12);
+    state[a]=state[a]+state[b]+my;
+    state[d]=rightRotate((state[d] ^ state[a]),8);
+
+    state[c]=state[c]+state[d];
+    state[b]=rightRotate((state[b] ^ state[c]),7);
+}
+
+void round(u32 state[16], u32 m[16])
+{
+    // Mix the columns.
+    g(state, 0, 4, 8, 12, m[0], m[1]);
+    g(state, 1, 5, 9, 13, m[2], m[3]);
+    g(state, 2, 6, 10, 14, m[4], m[5]);
+    g(state, 3, 7, 11, 15, m[6], m[7]);
+    // Mix the diagonals.
+    g(state, 0, 5, 10, 15, m[8], m[9]);
+    g(state, 1, 6, 11, 12, m[10], m[11]);
+    g(state, 2, 7, 8, 13, m[12], m[13]);
+    g(state, 3, 4, 9, 14, m[14], m[15]);
 }
 
 void permute(u32 m[16]) {
