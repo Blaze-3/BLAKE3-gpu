@@ -96,7 +96,7 @@ u32* first_8_words(u32 compression_output[16]) {
     return cmprs;
 }
 
-void words_from_little_endian_bytes(u8 bytes, u32 words) {
+void words_from_little_endian_bytes(u8* bytes, u32* words) {
 
 }
 
@@ -108,8 +108,16 @@ struct Output {
     u32 flags;
 
     // methods
-    u32* chaining_value();
-    void root_output_bytes(u8 out_slice);
+    u32* chaining_value() {
+        return first_8_words(compress(
+            input_chaining_value,
+            block_words,
+            counter,
+            block_len,
+            flags
+        ));
+    }
+    void root_output_bytes(u8* out_slice);
 };
 
 struct ChunkState {
@@ -122,8 +130,35 @@ struct ChunkState {
     ChunkState(u32 key[8], u64 chunk_counter, u32 flags);
     size_t len();
     u32 start_flag();
-    void update(u8 input);
+    void update(u8* input);
     Output output();
+};
+
+Output parent_output(u32 left_child_cv[8], u32 right_child_cv[8],
+u32 key[8], u32 flagse) {
+
+}
+
+u32* parent_cv(u32 left_child_cv[8], u32 right_child_cv[8],
+u32 key[8], u32 flags) {
+    return parent_output(left_child_cv, right_child_cv, key, flags).chaining_value();
+}
+
+struct Hasher {
+    ChunkState chunk_state;
+    u32 key[8], cv_stack[54][8], flags;
+    u8 cv_stack_len;
+
+    // methods
+    Hasher new_internal(u32 key[8], u32 flags);
+    // Hasher new();
+    Hasher new_keyed(u8 key[KEY_LEN]);
+    Hasher new_derive_key(string context);
+    void push_stack(u32 cv[8]);
+    u32 *pop_stack();
+    void add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks);
+    void update(u8* input);
+    void finalize(u8* out_slice);
 };
 
 int main() {
