@@ -1,4 +1,5 @@
 #include <iostream>
+#include <vector>
 using namespace std;
 
 #define INT_BITS sizeof(int)*8
@@ -196,7 +197,7 @@ struct Hasher {
 
     // methods
     Hasher new_internal(u32 key[8], u32 flags);
-    // Hasher new();
+    Hasher _new();
     Hasher new_keyed(u8 key[KEY_LEN]);
     Hasher new_derive_key(string context);
     void push_stack(u32 cv[8]);
@@ -205,6 +206,52 @@ struct Hasher {
     void update(u8* input);
     void finalize(u8* out_slice);
 };
+
+Hasher Hasher::new_internal(u32 key[8], u32 flags) {
+    return Hasher{
+        ChunkState(key, 0, flags),
+        {key[0], key[1], key[2], key[3],
+         key[4], key[5], key[6], key[7]},
+        {{}},
+        0,
+        flags
+    };
+}
+
+Hasher Hasher::_new() {
+    return new_internal(IV, 0);
+}
+
+Hasher Hasher::new_keyed(u8 key[KEY_LEN]) {
+    u32 key_words[8] = {0};
+    words_from_little_endian_bytes(key, key_words);
+    return new_internal(key_words, KEYED_HASH);
+}
+
+Hasher Hasher::new_derive_key(string context) {
+    Hasher context_hasher = new_internal(IV, DERIVE_KEY_CONTEXT);
+    vector<u8> context_bytes(context.length());
+    for(int i=0; i<context.length(); i++)
+        context_bytes[i] = context[i];
+    context_hasher.update(context_bytes.data());
+    u8 context_key[KEY_LEN] = {};
+    context_hasher.finalize(context_key);
+    u32 context_key_words[KEY_LEN] = {};
+    words_from_little_endian_bytes(context_key, context_key_words);
+    return new_internal(context_key_words, DERIVE_KEY_MATERIAL);
+}
+
+void Hasher::push_stack(u32 cv[8]) {
+    copy(cv, cv+8, cv_stack[cv_stack_len]);
+    ++cv_stack_len;
+}
+
+u32* Hasher::pop_stack() {
+    --cv_stack_len;
+    u32 tmp[8];
+    copy(begin(tmp), end(tmp), cv_stack[cv_stack_len]);
+    return tmp;
+}
 
 int main() {
     cout << "cats\n";
