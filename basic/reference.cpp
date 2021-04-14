@@ -253,6 +253,47 @@ u32* Hasher::pop_stack() {
     return tmp;
 }
 
+void Hasher::add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks) {
+    while (total_chunks & 1 == 0)
+    {
+        new_cv = parent_cv(pop_stack(), new_cv, key, flags);
+        total_chunks >>= 1;
+    }
+    push_stack(new_cv);
+}
+
+void Hasher::update(u8* input) {
+    while(true) {
+        if(chunk_state.len() == CHUNK_LEN) {
+            u32* chunk_cv = chunk_state.output().chaining_value();
+            u64 total_chunks = chunk_state.chunk_counter;
+            add_chunk_chaining_value(chunk_cv, total_chunks);
+            chunk_state = ChunkState(key, total_chunks, flags);
+        }
+
+        u32 want = CHUNK_LEN - chunk_state.len();
+        // u32 take = min(want, input.len());
+        // chunk_state.update(input[..take]);
+        // input = input[take..];
+    }
+}
+
+void Hasher::finalize(u8* out_slice) {
+    Output &output = chunk_state.output();
+    long parent_nodes_remaining = cv_stack_len;
+    while(parent_nodes_remaining > 0) {
+        --parent_nodes_remaining;
+        output = parent_output(
+            cv_stack[parent_nodes_remaining],
+            output.chaining_value(),
+            key,
+            flags
+        );
+    }
+    // cv_stack_len = parent_nodes_remaining;
+    output.root_output_bytes(out_slice);
+}
+
 int main() {
     cout << "cats\n";
 }
