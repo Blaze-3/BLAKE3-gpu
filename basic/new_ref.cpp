@@ -178,24 +178,22 @@ struct ChunkState {
     // methods
     ChunkState(u32 key[8], u64 chunk_counter, u32 flags)
     {
-        struct ChunkState* out = (struct ChunkState*)malloc(sizeof(struct ChunkState));
-        for (int i = 0; i<8; i++)
-        {
-            out->chaining_value[i]=key[i];
-        }
-        for (int m=0; m<BLOCK_LEN; m++)
-        {
-            out->block[m]=0;
-        }
-        out->block_len=0;
-        out->blocks_compressed=0;
-        out->flags=flags;
-
+        return ChunkState{
+            {key[0], key[1], key[2], key[3],
+             key[4], key[5], key[6], key[7]},
+            chunk_counter,
+            {},
+            0,
+            0,
+            flags
+        };
     }
+
     size_t len()
     {
         return (BLOCK_LEN * u32(blocks_compressed) + u32(block_len));
     }
+
     u32 start_flag()
     {
         if (blocks_compressed==0)
@@ -204,9 +202,10 @@ struct ChunkState {
         }
         else return 0;
     }
-    void update(u8* input)
+
+    void update(vector<u8> &input)
     {
-        while (input!=NULL)
+        while (!input.empty())
         {
             if (u32(block_len) == BLOCK_LEN)
             {
@@ -240,7 +239,7 @@ struct ChunkState {
 
             }
             u32 want = BLOCK_LEN - u32(block_len);
-            u32 take =  std::min(want,u32(sizeof(input)/sizeof(input[0])));
+            u32 take =  min(want, input.size());
             //complete this function
         }
     }

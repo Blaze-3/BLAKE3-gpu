@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <vector>
 using namespace std;
 
@@ -142,8 +143,12 @@ u32* first_8_words(u32 compression_output[16]) {
     return cmprs;
 }
 
-void words_from_little_endian_bytes(u8* bytes, u32* words) {
-
+void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
+    u32 tmp;
+    for(int i=0; i<bytes.size(); i+=4) {
+        tmp = (bytes[i]<<24) | (bytes[i+1]<<16) | (bytes[i+2]<<8) | bytes[i+3];
+        words[i/4] = tmp;
+    }
 }
 
 struct Output {
@@ -163,7 +168,9 @@ struct Output {
             flags
         ));
     }
-    void root_output_bytes(u8* out_slice);
+    void root_output_bytes(u8* out_slice) {
+
+    }
 };
 
 struct ChunkState {
@@ -176,13 +183,92 @@ struct ChunkState {
     ChunkState(u32 key[8], u64 chunk_counter, u32 flags);
     size_t len();
     u32 start_flag();
-    void update(u8* input);
+    void update(vector<u8> &input);
     Output output();
 };
 
-Output parent_output(u32 left_child_cv[8], u32 right_child_cv[8],
-u32 key[8], u32 flagse) {
+ChunkState::ChunkState(u32 key[8], u64 chunk_counter, u32 flags) {
+    copy(key, key+8, chaining_value);
+    this->chunk_counter = chunk_counter;
+    memset(block, 0, BLOCK_LEN);
+    block_len = 0;
+    blocks_compressed = 0;
+    this->flags = flags;
+}
 
+size_t ChunkState::len() {
+    return BLOCK_LEN*blocks_compressed + block_len;
+}
+
+u32 ChunkState::start_flag() {
+    if(blocks_compressed==0)
+        return CHUNK_START;
+    return 0;
+}
+
+void ChunkState::update(vector<u8> &input) {
+    while (!input.empty()) {
+        if (u32(block_len) == BLOCK_LEN) {
+            vector<u32> block_words(16, 0);
+            vector<u8> block_cast(begin(block), end(block));
+            words_from_little_endian_bytes(block_cast, block_words);
+            
+            //chaining_value
+            u32* transfer = compress(
+                chaining_value,
+                block_words.data(),
+                chunk_counter,
+                u32(BLOCK_LEN),
+                flags | start_flag()
+            );
+
+            blocks_compressed += 1;
+            for (int m=0; m < BLOCK_LEN; m++)
+                block[m]=0;
+            block_len=0;
+        }
+
+        u32 want = BLOCK_LEN - u32(block_len);
+        u32 take =  min(want, (u32)input.size());
+        for(int i=block_len; i<block_len+take; i++)
+            block[i] = input[i-block_len];
+        block_len += take;
+        for(int i=0; i<input.size()-take; i++)
+            input[i] = input[i+take];
+        for(int i=0; i<take; i++)
+            input.pop_back();
+    }
+}
+
+Output ChunkState::output() {
+    vector<u32> block_words(16, 0);
+    vector<u8> block_cast(begin(block), end(block));
+    words_from_little_endian_bytes(block_cast, block_words); 
+    Output out;
+    for(int i=0; i<16; i++)
+        out.block_words[i]=0;
+
+    for(int j=0; j<8; j++)
+        out.input_chaining_value[j]=chaining_value[j];
+
+    copy(begin(block), end(block), out.block_len);
+    out.counter =chunk_counter;
+    out.flags = flags | start_flag() | CHUNK_END;
+    return out;
+}
+
+Output parent_output(u32 left_child_cv[8], u32 right_child_cv[8],
+u32 key[8], u32 flags) {
+    Output out_one;
+    for(int j=0;j<8;j++){
+        out_one.block_words[j]=left_child_cv[j];
+        out_one.block_words[j+8]=right_child_cv[j+8];
+        out_one.input_chaining_value[j]=key[j];
+    }
+    out_one.counter=0;
+    out_one.block_len=BLOCK_LEN;
+    out_one.flags= PARENT | flags;
+    return out_one;
 }
 
 u32* parent_cv(u32 left_child_cv[8], u32 right_child_cv[8],
@@ -213,8 +299,8 @@ Hasher Hasher::new_internal(u32 key[8], u32 flags) {
         {key[0], key[1], key[2], key[3],
          key[4], key[5], key[6], key[7]},
         {{}},
-        0,
-        flags
+        flags,
+        0
     };
 }
 
@@ -223,9 +309,11 @@ Hasher Hasher::_new() {
 }
 
 Hasher Hasher::new_keyed(u8 key[KEY_LEN]) {
-    u32 key_words[8] = {0};
-    words_from_little_endian_bytes(key, key_words);
-    return new_internal(key_words, KEYED_HASH);
+    // u32 key_words[8] = {0};
+    vector<u32> key_words(8, 0);
+    vector<u8> key_cast(key, key+32);
+    words_from_little_endian_bytes(key_cast, key_words);
+    return new_internal(key_words.data(), KEYED_HASH);
 }
 
 Hasher Hasher::new_derive_key(string context) {
@@ -234,11 +322,12 @@ Hasher Hasher::new_derive_key(string context) {
     for(int i=0; i<context.length(); i++)
         context_bytes[i] = context[i];
     context_hasher.update(context_bytes.data());
-    u8 context_key[KEY_LEN] = {};
-    context_hasher.finalize(context_key);
-    u32 context_key_words[KEY_LEN] = {};
+    
+    vector<u8> context_key(KEY_LEN);
+    context_hasher.finalize(context_key.data());
+    vector<u32> context_key_words(KEY_LEN);
     words_from_little_endian_bytes(context_key, context_key_words);
-    return new_internal(context_key_words, DERIVE_KEY_MATERIAL);
+    return new_internal(context_key_words.data(), DERIVE_KEY_MATERIAL);
 }
 
 void Hasher::push_stack(u32 cv[8]) {
