@@ -1,19 +1,38 @@
 #include "reference.h"
+#include <fstream>
 
-int main() {
+#define BUFFER_LEN 4096
+
+int main(int argc, char *argv[]) {
+    if(argc<2) {
+        cout << "Usage: " << argv[0] << " test-file-name\n";
+        return 1;
+    }
+
     cout << "Blake hasher in cpp\n";
     Hasher hasher = Hasher::_new();
-    string input = "Good hash function";
-    vector<u8> bytes(begin(input), end(input));
+
+    ifstream file(argv[1], ios::binary);
+    if(file.fail()) {
+        cout << "Could not read file " << argv[1] << endl;
+        return 1;
+    }
+    char buffer[BUFFER_LEN];
+    while(file.read(buffer, BUFFER_LEN)) {
+        vector<u8> store(file.gcount());
+        for(int i=0; i<store.size(); i++)
+            store[i] = buffer[i];
+        hasher.update(store);
+    }
+
     vector<u8> hash_output(32);
-    hasher.update(bytes);
-    cout << "Updated hasher with data\n";
+
     hasher.finalize(hash_output);
-    cout << "Hash of: \n\t" << input << "\nIs: \n";
+    
+    cout << "Hash of file is: \n";
     for(auto e: hash_output)
         cout << (int)e << " ";
     cout << endl;
-    cout.flush();
 
     return 0;
 }
