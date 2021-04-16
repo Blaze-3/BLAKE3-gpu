@@ -14,4 +14,6 @@ int main() {
         cout << (int)e << " ";
     cout << endl;
     cout.flush();
+
+    return 0;
 }

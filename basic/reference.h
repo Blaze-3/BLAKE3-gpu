@@ -22,17 +22,17 @@ const u32 KEYED_HASH = 1 << 4;
 const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
-unsigned int IV[8] = {
+u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
 
-unsigned int MSG_PERMUTATION[] = {
+int MSG_PERMUTATION[] = {
     2, 6, 3, 10, 7, 0, 4, 13, 
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
-int leftRotate(int n, unsigned int d)
+u32 leftRotate(u32 n, unsigned int d)
 {
       
     /* In n<<d, last d bits are 0. To
@@ -42,7 +42,7 @@ int leftRotate(int n, unsigned int d)
     return (n << d)|(n >> (INT_BITS - d));
 }
 
-int rightRotate(int n, unsigned int d)
+u32 rightRotate(u32 n, unsigned int d)
 {
     /* In n>>d, first d bits are 0. 
     To put last 3 bits of at 
@@ -56,6 +56,7 @@ void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my)
     state[a]=state[a]+state[b]+state[mx];
     state[d]=rightRotate((state[d] ^ state[a]),16);
     state[c]=state[c]+state[d];
+    // cout << "g is good\n";
 
     state[b]=rightRotate((state[b] ^ state[c]),12);
     state[a]=state[a]+state[b]+my;
@@ -69,6 +70,7 @@ void round(u32 state[16], u32 m[16])
 {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
+    // cout << "Round is good\n";
     g(state, 1, 5, 9, 13, m[2], m[3]);
     g(state, 2, 6, 10, 14, m[4], m[5]);
     g(state, 3, 7, 11, 15, m[6], m[7]);
@@ -114,7 +116,7 @@ u32* compress(
     };
     u32 block[16];
     copy(block_words, block_words+16, block);
-
+    
     round(state, block); // round 1
     permute(block);
     round(state, block); // round 2
@@ -129,6 +131,7 @@ u32* compress(
     permute(block);
     round(state, block); // round 7
 
+    // cout << "Permuted n Rounded em\n";
     for(int i=0; i<8; i++){
         state[i] ^= state[i + 8];
         state[i + 8] ^= chaining_value[i];
@@ -174,6 +177,7 @@ struct Output {
         auto osb = begin(out_slice);
         for(; out_slice.size()-i>0; i+=k) {
             // words is u32[16]
+            // cout << "Running for i=" << i <<endl;
             u32* words = compress(
                 input_chaining_value,
                 block_words,
@@ -181,15 +185,17 @@ struct Output {
                 block_len,
                 flags | ROOT
             );
-        vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
-        for(int l=0; l<out_block.size(); l+=4) {
-            for(int j=0; j<min(4, (int)out_block.size()-l); j++)
-                out_block[l+j] = words[l/4]>>(8*(4-j)) & 0x000000FF;
+            // cout << "Compressed it\n";
+            vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
+            for(int l=0; l<out_block.size(); l+=4) {
+                for(int j=0; j<min(4, (int)out_block.size()-l); j++)
+                    out_block[l+j] = words[l/4]>>(8*(4-j)) & 0x000000FF;
+            }
+            for(int j=0; j<out_block.size(); j++)
+                out_slice[i+j] = out_block[j];
+            ++output_block_counter;
         }
-        for(int j=0; j<out_block.size(); j++)
-            out_slice[i+j] = out_block[j];
-        ++output_block_counter;
-        }
+        // cout << "root output bytes works\n";
     }
 };
 
@@ -402,5 +408,6 @@ void Hasher::finalize(vector<u8> &out_slice) {
             flags
         );
     }
+    // cout << "calling root output\n";
     output.root_output_bytes(out_slice);
 }
