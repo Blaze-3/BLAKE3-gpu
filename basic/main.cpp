@@ -1,7 +1,8 @@
 #include "reference.h"
 #include <fstream>
+#include <iomanip>
 
-#define BUFFER_LEN 4096
+#define BUFFER_LEN 1024
 
 int main(int argc, char *argv[]) {
     if(argc<2) {
@@ -10,6 +11,7 @@ int main(int argc, char *argv[]) {
     }
 
     cout << "Blake hasher in cpp\n";
+    cout << "32 byte hash outputs used here.\n";
     Hasher hasher = Hasher::_new();
 
     ifstream file(argv[1], ios::binary);
@@ -32,6 +34,11 @@ int main(int argc, char *argv[]) {
     cout << "Hash of file is: \n";
     for(auto e: hash_output)
         cout << (int)e << " ";
+    cout << endl;
+
+    cout << "Hex hash is: \n";
+    for(auto e: hash_output)
+        cout << hex << setfill('0') << setw(2) << (int)e;;
     cout << endl;
 
     return 0;

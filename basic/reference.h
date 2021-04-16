@@ -375,7 +375,7 @@ void Hasher::update(vector<u8> &input) {
     while(!input.empty()) {
         if(chunk_state.len() == CHUNK_LEN) {
             u32* chunk_cv = chunk_state.output().chaining_value();
-            u64 total_chunks = chunk_state.chunk_counter;
+            u64 total_chunks = chunk_state.chunk_counter + 1;
             add_chunk_chaining_value(chunk_cv, total_chunks);
             chunk_state = ChunkState(key, total_chunks, flags);
         }
