@@ -168,8 +168,28 @@ struct Output {
             flags
         ));
     }
-    void root_output_bytes(u8* out_slice) {
-
+    void root_output_bytes(vector<u8> &out_slice) {
+        u64 output_block_counter = 0;
+        u64 i=0, k=2*OUT_LEN;
+        auto osb = begin(out_slice);
+        for(; out_slice.size()-i>0; i+=k) {
+            // words is u32[16]
+            u32* words = compress(
+                input_chaining_value,
+                block_words,
+                output_block_counter,
+                block_len,
+                flags | ROOT
+            );
+        vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
+        for(int l=0; l<out_block.size(); l+=4) {
+            for(int j=0; j<min(4, (int)out_block.size()-l); j++)
+                out_block[l+j] = words[l/4]>>(8*(4-j)) & 0x000000FF;
+        }
+        for(int j=0; j<out_block.size(); j++)
+            out_slice[i+j] = out_block[j];
+        ++output_block_counter;
+        }
     }
 };
 
@@ -221,6 +241,7 @@ void ChunkState::update(vector<u8> &input) {
                 u32(BLOCK_LEN),
                 flags | start_flag()
             );
+            copy(transfer, transfer+8, chaining_value);
 
             blocks_compressed += 1;
             for (int m=0; m < BLOCK_LEN; m++)
@@ -289,8 +310,8 @@ struct Hasher {
     void push_stack(u32 cv[8]);
     u32 *pop_stack();
     void add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks);
-    void update(u8* input);
-    void finalize(u8* out_slice);
+    void update(vector<u8> &input);
+    void finalize(vector<u8> &out_slice);
 };
 
 Hasher Hasher::new_internal(u32 key[8], u32 flags) {
@@ -321,10 +342,10 @@ Hasher Hasher::new_derive_key(string context) {
     vector<u8> context_bytes(context.length());
     for(int i=0; i<context.length(); i++)
         context_bytes[i] = context[i];
-    context_hasher.update(context_bytes.data());
+    context_hasher.update(context_bytes);
     
     vector<u8> context_key(KEY_LEN);
-    context_hasher.finalize(context_key.data());
+    context_hasher.finalize(context_key);
     vector<u32> context_key_words(KEY_LEN);
     words_from_little_endian_bytes(context_key, context_key_words);
     return new_internal(context_key_words.data(), DERIVE_KEY_MATERIAL);
@@ -351,7 +372,7 @@ void Hasher::add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks) {
     push_stack(new_cv);
 }
 
-void Hasher::update(u8* input) {
+void Hasher::update(vector<u8> &input) {
     while(true) {
         if(chunk_state.len() == CHUNK_LEN) {
             u32* chunk_cv = chunk_state.output().chaining_value();
@@ -361,13 +382,17 @@ void Hasher::update(u8* input) {
         }
 
         u32 want = CHUNK_LEN - chunk_state.len();
-        // u32 take = min(want, input.len());
-        // chunk_state.update(input[..take]);
-        // input = input[take..];
+        u32 take = min(want, (u32)input.size());
+        vector<u8> tmp(begin(input), begin(input)+take);
+        chunk_state.update(tmp);
+        for(int i=0; i<input.size()-take; i++)
+            input[i] = input[i+take];
+        for(int i=0; i<take; i++)
+            input.pop_back();
     }
 }
 
-void Hasher::finalize(u8* out_slice) {
+void Hasher::finalize(vector<u8> &out_slice) {
     Output &output = chunk_state.output();
     long parent_nodes_remaining = cv_stack_len;
     while(parent_nodes_remaining > 0) {
