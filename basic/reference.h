@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <cstring>
 #include <vector>
 using namespace std;
 
@@ -53,10 +54,9 @@ u32 rightRotate(u32 n, unsigned int d)
 
 void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my)
 {
-    state[a]=state[a]+state[b]+state[mx];
+    state[a]=state[a]+state[b]+mx;
     state[d]=rightRotate((state[d] ^ state[a]),16);
     state[c]=state[c]+state[d];
-    // cout << "g is good\n";
 
     state[b]=rightRotate((state[b] ^ state[c]),12);
     state[a]=state[a]+state[b]+my;
@@ -70,7 +70,6 @@ void round(u32 state[16], u32 m[16])
 {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
-    // cout << "Round is good\n";
     g(state, 1, 5, 9, 13, m[2], m[3]);
     g(state, 2, 6, 10, 14, m[4], m[5]);
     g(state, 3, 7, 11, 15, m[6], m[7]);
@@ -131,7 +130,6 @@ u32* compress(
     permute(block);
     round(state, block); // round 7
 
-    // cout << "Permuted n Rounded em\n";
     for(int i=0; i<8; i++){
         state[i] ^= state[i + 8];
         state[i + 8] ^= chaining_value[i];
@@ -148,7 +146,7 @@ u32* first_8_words(u32 compression_output[16]) {
 
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
     u32 tmp;
-    for(int i=0; i<bytes.size(); i+=4) {
+    for(u32 i=0; i<bytes.size(); i+=4) {
         tmp = (bytes[i]<<24) | (bytes[i+1]<<16) | (bytes[i+2]<<8) | bytes[i+3];
         words[i/4] = tmp;
     }
@@ -175,9 +173,8 @@ struct Output {
         u64 output_block_counter = 0;
         u64 i=0, k=2*OUT_LEN;
         auto osb = begin(out_slice);
-        for(; out_slice.size()-i>0; i+=k) {
+        for(; int(out_slice.size()-i)>0; i+=k) {
             // words is u32[16]
-            // cout << "Running for i=" << i <<endl;
             u32* words = compress(
                 input_chaining_value,
                 block_words,
@@ -185,17 +182,15 @@ struct Output {
                 block_len,
                 flags | ROOT
             );
-            // cout << "Compressed it\n";
             vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
-            for(int l=0; l<out_block.size(); l+=4) {
-                for(int j=0; j<min(4, (int)out_block.size()-l); j++)
+            for(u32 l=0; l<out_block.size(); l+=4) {
+                for(u32 j=0; j<min(4U, (u32)out_block.size()-l); j++)
                     out_block[l+j] = words[l/4]>>(8*(4-j)) & 0x000000FF;
             }
-            for(int j=0; j<out_block.size(); j++)
+            for(u32 j=0; j<out_block.size(); j++)
                 out_slice[i+j] = out_block[j];
             ++output_block_counter;
         }
-        // cout << "root output bytes works\n";
     }
 };
 
@@ -250,19 +245,19 @@ void ChunkState::update(vector<u8> &input) {
             copy(transfer, transfer+8, chaining_value);
 
             blocks_compressed += 1;
-            for (int m=0; m < BLOCK_LEN; m++)
+            for (u32 m=0; m < BLOCK_LEN; m++)
                 block[m]=0;
             block_len=0;
         }
 
         u32 want = BLOCK_LEN - u32(block_len);
         u32 take =  min(want, (u32)input.size());
-        for(int i=block_len; i<block_len+take; i++)
+        for(u32 i=block_len; i<block_len+take; i++)
             block[i] = input[i-block_len];
         block_len += take;
-        for(int i=0; i<input.size()-take; i++)
+        for(u32 i=0; i<input.size()-take; i++)
             input[i] = input[i+take];
-        for(int i=0; i<take; i++)
+        for(u32 i=0; i<take; i++)
             input.pop_back();
     }
 }
@@ -274,7 +269,7 @@ Output ChunkState::output() {
     
     Output out;
 
-    for(int j=0; j<8; j++)
+    for(u32 j=0; j<8; j++)
         out.input_chaining_value[j]=chaining_value[j];
     copy(begin(block_words), end(block_words), out.block_words);
     out.block_len = block_len;
@@ -286,7 +281,7 @@ Output ChunkState::output() {
 Output parent_output(u32 left_child_cv[8], u32 right_child_cv[8],
 u32 key[8], u32 flags) {
     Output out_one;
-    for(int j=0;j<8;j++){
+    for(u32 j=0;j<8;j++){
         out_one.block_words[j]=left_child_cv[j];
         out_one.block_words[j+8]=right_child_cv[j+8];
         out_one.input_chaining_value[j]=key[j];
@@ -345,7 +340,7 @@ Hasher Hasher::new_keyed(u8 key[KEY_LEN]) {
 Hasher Hasher::new_derive_key(string context) {
     Hasher context_hasher = new_internal(IV, DERIVE_KEY_CONTEXT);
     vector<u8> context_bytes(context.length());
-    for(int i=0; i<context.length(); i++)
+    for(u32 i=0; i<context.length(); i++)
         context_bytes[i] = context[i];
     context_hasher.update(context_bytes);
     
@@ -389,9 +384,9 @@ void Hasher::update(vector<u8> &input) {
         u32 take = min(want, (u32)input.size());
         vector<u8> tmp(begin(input), begin(input)+take);
         chunk_state.update(tmp);
-        for(int i=0; i<input.size()-take; i++)
+        for(u32 i=0; i<input.size()-take; i++)
             input[i] = input[i+take];
-        for(int i=0; i<take; i++)
+        for(u32 i=0; i<take; i++)
             input.pop_back();
     }
 }
@@ -408,6 +403,5 @@ void Hasher::finalize(vector<u8> &out_slice) {
             flags
         );
     }
-    // cout << "calling root output\n";
     output.root_output_bytes(out_slice);
 }

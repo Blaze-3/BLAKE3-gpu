@@ -9,7 +9,7 @@ int main() {
     hasher.update(bytes);
     cout << "Updated hasher with data\n";
     hasher.finalize(hash_output);
-    cout << "Hash of: " << input << ": \n";
+    cout << "Hash of: \n\t" << input << "\nIs: \n";
     for(auto e: hash_output)
         cout << (int)e << " ";
     cout << endl;
