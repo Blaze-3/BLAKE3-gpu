@@ -1,3 +1,6 @@
+# Project files
+.vscode/
+
 # Prerequisites
 *.d
 

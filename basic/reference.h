@@ -6,7 +6,7 @@ using namespace std;
 #define INT_BITS sizeof(int)*8
 
 using u32 = unsigned int;
-using u64 = unsigned long;
+using u64 = unsigned long long;
 using u8  = unsigned char;
  
 const u32 OUT_LEN = 32;
@@ -107,8 +107,8 @@ u32* compress(
         IV[1],
         IV[2],
         IV[3],
-        u32(counter),
-        u32(counter >> 32),
+        (u32)counter,
+        (u32)(counter >> 32),
         block_len,
         flags,
     };
@@ -210,7 +210,7 @@ struct ChunkState {
 ChunkState::ChunkState(u32 key[8], u64 chunk_counter, u32 flags) {
     copy(key, key+8, chaining_value);
     this->chunk_counter = chunk_counter;
-    memset(block, 0, BLOCK_LEN);
+    memset(block, 0, BLOCK_LEN*sizeof(*block));
     block_len = 0;
     blocks_compressed = 0;
     this->flags = flags;
@@ -265,15 +265,14 @@ Output ChunkState::output() {
     vector<u32> block_words(16, 0);
     vector<u8> block_cast(begin(block), end(block));
     words_from_little_endian_bytes(block_cast, block_words); 
+    
     Output out;
-    for(int i=0; i<16; i++)
-        out.block_words[i]=0;
 
     for(int j=0; j<8; j++)
         out.input_chaining_value[j]=chaining_value[j];
-
-    copy(begin(block), end(block), out.block_len);
-    out.counter =chunk_counter;
+    copy(begin(block_words), end(block_words), out.block_words);
+    out.block_len = block_len;
+    out.counter = chunk_counter;
     out.flags = flags | start_flag() | CHUNK_END;
     return out;
 }
@@ -303,8 +302,8 @@ struct Hasher {
     u8 cv_stack_len;
 
     // methods
-    Hasher new_internal(u32 key[8], u32 flags);
-    Hasher _new();
+    static Hasher new_internal(u32 key[8], u32 flags);
+    static Hasher _new();
     Hasher new_keyed(u8 key[KEY_LEN]);
     Hasher new_derive_key(string context);
     void push_stack(u32 cv[8]);
@@ -358,14 +357,13 @@ void Hasher::push_stack(u32 cv[8]) {
 
 u32* Hasher::pop_stack() {
     --cv_stack_len;
-    u32 tmp[8];
-    copy(begin(tmp), end(tmp), cv_stack[cv_stack_len]);
+    u32 *tmp = new u32[8];
+    copy(tmp, tmp, cv_stack[cv_stack_len]);
     return tmp;
 }
 
 void Hasher::add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks) {
-    while (total_chunks & 1 == 0)
-    {
+    while ((total_chunks & 1) == 0) {
         new_cv = parent_cv(pop_stack(), new_cv, key, flags);
         total_chunks >>= 1;
     }
@@ -373,7 +371,7 @@ void Hasher::add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks) {
 }
 
 void Hasher::update(vector<u8> &input) {
-    while(true) {
+    while(!input.empty()) {
         if(chunk_state.len() == CHUNK_LEN) {
             u32* chunk_cv = chunk_state.output().chaining_value();
             u64 total_chunks = chunk_state.chunk_counter;
@@ -393,7 +391,7 @@ void Hasher::update(vector<u8> &input) {
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
-    Output &output = chunk_state.output();
+    Output output = chunk_state.output();
     long parent_nodes_remaining = cv_stack_len;
     while(parent_nodes_remaining > 0) {
         --parent_nodes_remaining;
@@ -404,10 +402,5 @@ void Hasher::finalize(vector<u8> &out_slice) {
             flags
         );
     }
-    // cv_stack_len = parent_nodes_remaining;
     output.root_output_bytes(out_slice);
-}
-
-int main() {
-    cout << "cats\n";
 }
