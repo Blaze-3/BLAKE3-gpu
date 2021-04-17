@@ -33,9 +33,7 @@ int MSG_PERMUTATION[] = {
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
-u32 leftRotate(u32 n, unsigned int d)
-{
-      
+u32 leftRotate(u32 n, unsigned int d) {
     /* In n<<d, last d bits are 0. To
      put first 3 bits of n at 
     last, do bitwise or of n<<d 
@@ -43,8 +41,7 @@ u32 leftRotate(u32 n, unsigned int d)
     return (n << d)|(n >> (INT_BITS - d));
 }
 
-u32 rightRotate(u32 n, unsigned int d)
-{
+u32 rightRotate(u32 n, unsigned int d) {
     /* In n>>d, first d bits are 0. 
     To put last 3 bits of at 
     first, do bitwise or of n>>d
@@ -52,22 +49,20 @@ u32 rightRotate(u32 n, unsigned int d)
     return (n >> d)|(n << (INT_BITS - d));
 }
 
-void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my)
-{
+void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[a]=state[a]+state[b]+mx;
-    state[d]=rightRotate((state[d] ^ state[a]),16);
+    state[d]=rightRotate((state[d] ^ state[a]), 16);
     state[c]=state[c]+state[d];
 
-    state[b]=rightRotate((state[b] ^ state[c]),12);
+    state[b]=rightRotate((state[b] ^ state[c]), 12);
     state[a]=state[a]+state[b]+my;
-    state[d]=rightRotate((state[d] ^ state[a]),8);
+    state[d]=rightRotate((state[d] ^ state[a]), 8);
 
     state[c]=state[c]+state[d];
-    state[b]=rightRotate((state[b] ^ state[c]),7);
+    state[b]=rightRotate((state[b] ^ state[c]), 7);
 }
 
-void round(u32 state[16], u32 m[16])
-{
+void round(u32 state[16], u32 m[16]) {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
     g(state, 1, 5, 9, 13, m[2], m[3]);
@@ -211,7 +206,8 @@ struct ChunkState {
 ChunkState::ChunkState(u32 key[8], u64 chunk_counter, u32 flags) {
     copy(key, key+8, chaining_value);
     this->chunk_counter = chunk_counter;
-    memset(block, 0, BLOCK_LEN*sizeof(*block));
+    for(int i=0; i<BLOCK_LEN; i++)
+        block[i] = 0;
     block_len = 0;
     blocks_compressed = 0;
     this->flags = flags;
@@ -245,8 +241,8 @@ void ChunkState::update(vector<u8> &input) {
             copy(transfer, transfer+8, chaining_value);
 
             blocks_compressed += 1;
-            for (u32 m=0; m < BLOCK_LEN; m++)
-                block[m]=0;
+            for (u32 i=0; i < BLOCK_LEN; i++)
+                block[i]=0;
             block_len=0;
         }
 
@@ -282,13 +278,13 @@ Output parent_output(u32 left_child_cv[8], u32 right_child_cv[8],
 u32 key[8], u32 flags) {
     Output out_one;
     for(u32 j=0;j<8;j++){
-        out_one.block_words[j]=left_child_cv[j];
-        out_one.block_words[j+8]=right_child_cv[j+8];
-        out_one.input_chaining_value[j]=key[j];
+        out_one.block_words[j] = left_child_cv[j];
+        out_one.block_words[j+8] = right_child_cv[j];
+        out_one.input_chaining_value[j] = key[j];
     }
-    out_one.counter=0;
-    out_one.block_len=BLOCK_LEN;
-    out_one.flags= PARENT | flags;
+    out_one.counter = 0;
+    out_one.block_len = BLOCK_LEN;
+    out_one.flags = PARENT | flags;
     return out_one;
 }
 
@@ -299,7 +295,9 @@ u32 key[8], u32 flags) {
 
 struct Hasher {
     ChunkState chunk_state;
-    u32 key[8], cv_stack[54][8], flags;
+    u32 key[8];
+    u32 cv_stack[54][8];
+    u32 flags;
     u8 cv_stack_len;
 
     // methods
@@ -309,20 +307,25 @@ struct Hasher {
     Hasher new_derive_key(string context);
     void push_stack(u32 cv[8]);
     u32 *pop_stack();
-    void add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks);
+    void add_chunk_chaining_value(u32 *new_cv, u64 total_chunks);
     void update(vector<u8> &input);
     void finalize(vector<u8> &out_slice);
 };
 
 Hasher Hasher::new_internal(u32 key[8], u32 flags) {
-    return Hasher{
+    Hasher tmp = Hasher{
         ChunkState(key, 0, flags),
-        {key[0], key[1], key[2], key[3],
-         key[4], key[5], key[6], key[7]},
-        {{}},
+        {}, // key
+        {{0}},  // cv_stack
         flags,
         0
     };
+    // Not sure about keys and cv_stack, will set them by hand
+    copy(key, key+8, tmp.key);
+    for(int i=0; i<54; i++)
+        for(int j=0; j<8; j++)
+            tmp.cv_stack[i][j] = 0;
+    return tmp;
 }
 
 Hasher Hasher::_new() {
@@ -330,9 +333,8 @@ Hasher Hasher::_new() {
 }
 
 Hasher Hasher::new_keyed(u8 key[KEY_LEN]) {
-    // u32 key_words[8] = {0};
     vector<u32> key_words(8, 0);
-    vector<u8> key_cast(key, key+32);
+    vector<u8> key_cast(key, key+KEY_LEN);
     words_from_little_endian_bytes(key_cast, key_words);
     return new_internal(key_words.data(), KEYED_HASH);
 }
@@ -359,11 +361,11 @@ void Hasher::push_stack(u32 cv[8]) {
 u32* Hasher::pop_stack() {
     --cv_stack_len;
     u32 *tmp = new u32[8];
-    copy(tmp, tmp, cv_stack[cv_stack_len]);
+    copy(cv_stack[cv_stack_len], cv_stack[cv_stack_len]+8, tmp);
     return tmp;
 }
 
-void Hasher::add_chunk_chaining_value(u32 new_cv[8], u64 total_chunks) {
+void Hasher::add_chunk_chaining_value(u32 *new_cv, u64 total_chunks) {
     while ((total_chunks & 1) == 0) {
         new_cv = parent_cv(pop_stack(), new_cv, key, flags);
         total_chunks >>= 1;
