@@ -120,9 +120,10 @@ u32* compress(
     return state;
 }
 
-u32* first_8_words(u32 compression_output[16]) {
+u32* first_8_words(u32 *compression_output) {
     u32 *cmprs = new u32[8];
     copy(compression_output, compression_output+8, cmprs);
+    delete []compression_output;
     return cmprs;
 }
 
@@ -172,6 +173,7 @@ struct Output {
             for(u32 j=0; j<out_block.size(); j++)
                 out_slice[i+j] = out_block[j];
             ++output_block_counter;
+            delete []words;
         }
     }
 };
@@ -354,7 +356,11 @@ u32* Hasher::pop_stack() {
 
 void Hasher::add_chunk_chaining_value(u32 *new_cv, u64 total_chunks) {
     while ((total_chunks & 1) == 0) {
-        new_cv = parent_cv(pop_stack(), new_cv, key, flags);
+        u32 *cv = pop_stack();
+        u32 *old_cv = new_cv;
+        new_cv = parent_cv(cv, old_cv, key, flags);
+        delete []cv;
+        delete []old_cv;
         total_chunks >>= 1;
     }
     push_stack(new_cv);
