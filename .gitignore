@@ -1,5 +1,6 @@
 # Project files
 .vscode/
+*.bin
 
 # Prerequisites
 *.d
@@ -33,3 +34,4 @@
 *.exe
 *.out
 *.app
+!*b3sum.exe*

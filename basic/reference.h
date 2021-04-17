@@ -1,6 +1,5 @@
 #include <iostream>
 #include <algorithm>
-#include <bit>
 #include <cstring>
 #include <vector>
 using namespace std;
@@ -32,17 +31,22 @@ int MSG_PERMUTATION[] = {
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
+u32 rotr(u32 value, int shift) {
+    int usize = sizeof(u32) * 8;
+    return (value >> shift)|(value << (usize - shift));
+}
+
 void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[a] = state[a] + state[b] + mx;
-    state[d] = _rotr((state[d] ^ state[a]), 16);
+    state[d] = rotr((state[d] ^ state[a]), 16);
     state[c] = state[c] + state[d];
 
-    state[b] = _rotr((state[b] ^ state[c]), 12);
+    state[b] = rotr((state[b] ^ state[c]), 12);
     state[a] = state[a] + state[b] + my;
-    state[d] = _rotr((state[d] ^ state[a]), 8);
+    state[d] = rotr((state[d] ^ state[a]), 8);
 
     state[c] = state[c] + state[d];
-    state[b] = _rotr((state[b] ^ state[c]), 7);
+    state[b] = rotr((state[b] ^ state[c]), 7);
 }
 
 void round(u32 state[16], u32 m[16]) {
