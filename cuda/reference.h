@@ -228,7 +228,7 @@ void ChunkState::update(vector<u8> &input) {
                 flags | start_flag()
             );
             copy(transfer, transfer+8, chaining_value);
-
+            delete []transfer;
             blocks_compressed += 1;
             for (u32 i=0; i < BLOCK_LEN; i++)
                 block[i]=0;
@@ -364,6 +364,7 @@ void Hasher::add_chunk_chaining_value(u32 *new_cv, u64 total_chunks) {
         total_chunks >>= 1;
     }
     push_stack(new_cv);
+    delete []new_cv;
 }
 
 void Hasher::update(vector<u8> &input) {
@@ -391,12 +392,14 @@ void Hasher::finalize(vector<u8> &out_slice) {
     long parent_nodes_remaining = cv_stack_len;
     while(parent_nodes_remaining > 0) {
         --parent_nodes_remaining;
+        u32 *right_child_cv = output.chaining_value();
         output = parent_output(
             cv_stack[parent_nodes_remaining],
-            output.chaining_value(),
+            right_child_cv,
             key,
             flags
         );
+        delete []right_child_cv;
     }
     output.root_output_bytes(out_slice);
 }

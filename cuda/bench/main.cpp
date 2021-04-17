@@ -2,7 +2,7 @@
 #include <fstream>
 #include <iomanip>
 
-#define BUFFER_LEN 1024
+#define BUFFER_LEN 128
 
 int main(int argc, char *argv[]) {
     if(argc<2) {
@@ -20,9 +20,7 @@ int main(int argc, char *argv[]) {
     char buffer[BUFFER_LEN] = {0};
     file.read(buffer, BUFFER_LEN);
     while(file.gcount()) {
-        vector<u8> store(file.gcount());
-        for(int i=0; i<store.size(); i++)
-            store[i] = buffer[i];
+        vector<u8> store(buffer, buffer+file.gcount());
         hasher.update(store);
         file.read(buffer, BUFFER_LEN);
     }

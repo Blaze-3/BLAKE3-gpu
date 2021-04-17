@@ -2,7 +2,7 @@
 #include <fstream>
 #include <iomanip>
 
-#define BUFFER_LEN 4096
+#define BUFFER_LEN 128
 
 int main(int argc, char *argv[]) {
     if(argc<2) {
