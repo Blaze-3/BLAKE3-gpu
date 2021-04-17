@@ -15,7 +15,7 @@ replace /home/cicada3301/Desktop/BLAKE3/reference_impl with your path, the refer
  
 ### Step5: Build and Run
 > Navigate to the `ref_test` directory, a src directory and Cargo.toml file must be visible.
-$ `cargo build`
-$ `cargo run`
+$ `cargo build` .
+$ `cargo run` .
 
 
