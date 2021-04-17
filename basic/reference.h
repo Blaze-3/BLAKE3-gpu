@@ -1,10 +1,9 @@
 #include <iostream>
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <vector>
 using namespace std;
-
-#define INT_BITS sizeof(int)*8
 
 using u32 = unsigned int;
 using u64 = unsigned long long;
@@ -33,33 +32,17 @@ int MSG_PERMUTATION[] = {
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
-u32 leftRotate(u32 n, unsigned int d) {
-    /* In n<<d, last d bits are 0. To
-     put first 3 bits of n at 
-    last, do bitwise or of n<<d 
-    with n >>(INT_BITS - d) */
-    return (n << d)|(n >> (INT_BITS - d));
-}
-
-u32 rightRotate(u32 n, unsigned int d) {
-    /* In n>>d, first d bits are 0. 
-    To put last 3 bits of at 
-    first, do bitwise or of n>>d
-    with n <<(INT_BITS - d) */
-    return (n >> d)|(n << (INT_BITS - d));
-}
-
 void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
-    state[a]=state[a]+state[b]+mx;
-    state[d]=rightRotate((state[d] ^ state[a]), 16);
-    state[c]=state[c]+state[d];
+    state[a] = state[a] + state[b] + mx;
+    state[d] = _rotr((state[d] ^ state[a]), 16);
+    state[c] = state[c] + state[d];
 
-    state[b]=rightRotate((state[b] ^ state[c]), 12);
-    state[a]=state[a]+state[b]+my;
-    state[d]=rightRotate((state[d] ^ state[a]), 8);
+    state[b] = _rotr((state[b] ^ state[c]), 12);
+    state[a] = state[a] + state[b] + my;
+    state[d] = _rotr((state[d] ^ state[a]), 8);
 
-    state[c]=state[c]+state[d];
-    state[b]=rightRotate((state[b] ^ state[c]), 7);
+    state[c] = state[c] + state[d];
+    state[b] = _rotr((state[b] ^ state[c]), 7);
 }
 
 void round(u32 state[16], u32 m[16]) {
@@ -142,7 +125,7 @@ u32* first_8_words(u32 compression_output[16]) {
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
     u32 tmp;
     for(u32 i=0; i<bytes.size(); i+=4) {
-        tmp = (bytes[i]<<24) | (bytes[i+1]<<16) | (bytes[i+2]<<8) | bytes[i+3];
+        tmp = (bytes[i+3]<<24) | (bytes[i+2]<<16) | (bytes[i+1]<<8) | bytes[i];
         words[i/4] = tmp;
     }
 }
@@ -180,7 +163,7 @@ struct Output {
             vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
             for(u32 l=0; l<out_block.size(); l+=4) {
                 for(u32 j=0; j<min(4U, (u32)out_block.size()-l); j++)
-                    out_block[l+j] = words[l/4]>>(8*(4-j)) & 0x000000FF;
+                    out_block[l+j] = (words[l/4]>>(8*j)) & 0x000000FF;
             }
             for(u32 j=0; j<out_block.size(); j++)
                 out_slice[i+j] = out_block[j];
