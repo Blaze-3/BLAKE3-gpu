@@ -321,7 +321,7 @@ void Chunk::compress_chunk(u32 out_flags) {
             data.data(),
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
-            flags | CHUNK_START | CHUNK_END | out_flags
+            flags | out_flags
         ));
         copy(transfer, transfer+8, hash);
         delete[] transfer;
@@ -332,7 +332,7 @@ void Chunk::compress_chunk(u32 out_flags) {
             data.data(),
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
-            flags | CHUNK_START | CHUNK_END | out_flags
+            flags | out_flags
         );
         copy(transfer, transfer+16, raw_hash);
         delete[] transfer;
@@ -526,7 +526,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
     // }
     // output.root_output_bytes(out_slice);
 
-    cout << "Finalizing\n";
+    // cout << "Finalizing\n";
     // New style
     // At every level, compress biggest to smallest, then merge them all in the reverse order
     // Pass on the new node to the upper level
@@ -552,7 +552,10 @@ void Hasher::finalize(vector<u8> &out_slice) {
             subtrees.pop_back();
             Chunk tmp2 = subtrees.back();
             subtrees.pop_back();
-            Chunk tmp = merge(tmp1, tmp2);
+            // tmp2 is the left child
+            // tmp1 is the right child
+            // that's the order they appear within the array
+            Chunk tmp = merge(tmp2, tmp1);
             subtrees.push_back(tmp);
         }
         if(i<63)
@@ -570,7 +573,7 @@ Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
     if(n == 1)
         return *first;
 
-    cout << "Called hash many for size: " << n << endl;
+    // cout << "Called hash many for size: " << n << endl;
 
     // parallelism here
     // left and right computation can be done simultaneously
@@ -588,7 +591,7 @@ Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
 }
 
 Chunk merge(Chunk left, Chunk right) {
-    cout << "Called merge once\n";
+    // cout << "Called merge once\n";
     left.compress_chunk();
     right.compress_chunk();
 
@@ -600,23 +603,28 @@ Chunk merge(Chunk left, Chunk right) {
 }
 
 void hash_root(Chunk node, vector<u8> &out_slice) {
-    // the last message block must not be hashed
+    // the last message block must not be hashed like the others
+    // it needs to be hashed with the root flag
     u64 output_block_counter = 0;
     u64 i=0, k=2*OUT_LEN;
     auto osb = begin(out_slice);
     for(; int(out_slice.size()-i)>0; i+=k) {
         node.counter = output_block_counter;
         node.compress_chunk(ROOT);
+        
         // words is u32[16]
         u32* words = new u32[16];
         copy(node.raw_hash, node.raw_hash+16, words);
+        
         vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
         for(u32 l=0; l<out_block.size(); l+=4) {
             for(u32 j=0; j<min(4U, (u32)out_block.size()-l); j++)
                 out_block[l+j] = (words[l/4]>>(8*j)) & 0x000000FF;
         }
+        
         for(u32 j=0; j<out_block.size(); j++)
             out_slice[i+j] = out_block[j];
+        
         ++output_block_counter;
         delete []words;
     }
