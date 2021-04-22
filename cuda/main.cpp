@@ -2,7 +2,8 @@
 #include <fstream>
 #include <iomanip>
 
-#define BUFFER_LEN 128
+// Do not change this, it has to be equal to chunk size
+#define BUFFER_LEN CHUNK_LEN
 
 int main(int argc, char *argv[]) {
     if(argc<2) {
