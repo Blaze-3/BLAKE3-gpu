@@ -342,6 +342,13 @@ void Chunk::compress_chunk(u32 out_flags) {
         u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
         copy(key, key+8, chaining_value);
 
+        bool empty_input = leaf_data.empty();
+        if(empty_input) {
+            // cout << "empty yo\n";
+            for(u32 i=0; i<BLOCK_LEN; i++)
+                leaf_data.push_back(0U);
+        }
+
         for(u32 i=0; i<leaf_data.size(); i+=BLOCK_LEN) {
             flagger = flags;
             // for the last message block
@@ -349,6 +356,10 @@ void Chunk::compress_chunk(u32 out_flags) {
                 block_len = leaf_data.size()%BLOCK_LEN;
             else
                 block_len = BLOCK_LEN;
+
+            // special case
+            if(empty_input)
+                block_len = 0;
             
             vector<u32> block_words(16, 0);
             vector<u8> block_cast(leaf_data.begin()+i, leaf_data.begin()+i+block_len);
@@ -478,24 +489,6 @@ void Hasher::add_chunk_chaining_value(u32 *new_cv, u64 total_chunks) {
 }
 
 void Hasher::update(vector<u8> &input) {
-    // while(!input.empty()) {
-    //     if(chunk_state.len() == CHUNK_LEN) {
-    //         u32* chunk_cv = chunk_state.output().chaining_value();
-    //         u64 total_chunks = chunk_state.chunk_counter + 1;
-    //         add_chunk_chaining_value(chunk_cv, total_chunks);
-    //         chunk_state = ChunkState(key, total_chunks, flags);
-    //     }
-
-    //     u32 want = CHUNK_LEN - chunk_state.len();
-    //     u32 take = min(want, (u32)input.size());
-    //     vector<u8> tmp(begin(input), begin(input)+take);
-    //     chunk_state.update(tmp);
-    //     for(u32 i=0; i<input.size()-take; i++)
-    //         input[i] = input[i+take];
-    //     for(u32 i=0; i<take; i++)
-    //         input.pop_back();
-    // }
-
     // New style
     int level=0;
     factory[level].push_back(Chunk(input, flags, key, ctr));
@@ -511,28 +504,13 @@ void Hasher::update(vector<u8> &input) {
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
-    // Output output = chunk_state.output();
-    // long parent_nodes_remaining = cv_stack_len;
-    // while(parent_nodes_remaining > 0) {
-    //     --parent_nodes_remaining;
-    //     u32 *right_child_cv = output.chaining_value();
-    //     output = parent_output(
-    //         cv_stack[parent_nodes_remaining],
-    //         right_child_cv,
-    //         key,
-    //         flags
-    //     );
-    //     delete []right_child_cv;
-    // }
-    // output.root_output_bytes(out_slice);
-
     // cout << "Finalizing\n";
     // New style
     // At every level, compress biggest to smallest, then merge them all in the reverse order
     // Pass on the new node to the upper level
     // Continue till topmost level reached. Guaranteed only one node there
     // Root hash the final node
-    Chunk root;
+    Chunk root(flags, key);
     for(int i=0; i<64; i++) {
         vector<Chunk> subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
