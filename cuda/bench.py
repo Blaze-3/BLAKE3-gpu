@@ -37,7 +37,7 @@ print("\x1b[32m", f"Execution time: {exec_time:.2f}s", "\033[0m")
 if len(sys.argv) < 3:
     exit(0)
 
-if sys.argv[2] in {"s", "all"}:
+if sys.argv[2] in {"seq", "all"}:
     start = time.time()
     process = subprocess.run([SEQUENTIAL, FILE_TO_HASH], stdout=subprocess.PIPE)
     result = process.stdout.decode().strip()
