@@ -122,13 +122,6 @@ u32* compress(
     return state;
 }
 
-u32* first_8_words(u32 *compression_output) {
-    u32 *cmprs = new u32[8];
-    copy(compression_output, compression_output+8, cmprs);
-    delete []compression_output;
-    return cmprs;
-}
-
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
     u32 tmp;
     for(u32 i=0; i<bytes.size(); i+=4) {
@@ -168,24 +161,15 @@ void Chunk::compress_chunk(u32 out_flags) {
     if(flags&PARENT) {
         // cout << "Compressing parent\n";
         // only 1 message block
-        u32 *transfer = first_8_words(compress(
-            key,
-            data.data(),
-            0,  // counter is always zero for parent nodes
-            BLOCK_LEN,
-            flags | out_flags
-        ));
-        copy(transfer, transfer+8, hash);
-        delete[] transfer;
-
         // raw hash for root node
-        transfer = compress(
+        u32 *transfer = compress(
             key,
             data.data(),
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
             flags | out_flags
         );
+        copy(transfer, transfer+8, hash);
         copy(transfer, transfer+16, raw_hash);
         delete[] transfer;
     }
@@ -354,10 +338,21 @@ Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
     }
     // cout << "Called hash many for size: " << n << endl;
 
+    Chunk left, right;
     // parallelism here
     // left and right computation can be done simultaneously
-    Chunk left = hash_many(first, first+n/2);
-    Chunk right = hash_many(first+n/2, last);
+    #pragma omp parallel
+    {
+        #pragma omp single
+        {
+            #pragma omp task
+            left = hash_many(first, first+n/2);
+            #pragma omp task
+            right = hash_many(first+n/2, last);
+        }
+    }
+    
+    // #pragma omp taskwait
     // parallelism ends
 
     Chunk parent(left.flags, left.key);

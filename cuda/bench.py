@@ -17,7 +17,19 @@ else:
 
 FILE_TO_HASH = 'bench/bencher.bin'
 
-file_size = int(sys.argv[1])
+raw_file_size = sys.argv[1]
+# Shortcut to generate large files
+if raw_file_size[-1].isalpha():
+    file_size = int(raw_file_size[:-1])
+    modifier = raw_file_size[-1]
+    file_size *= {
+        "K": 1e+3,
+        "M": 1e+6,
+        "G": 1e+9
+    }[modifier.upper()]
+    file_size = int(file_size)
+else:
+    file_size = int(raw_file_size)
 if not Path(FILE_TO_HASH).exists() or Path(FILE_TO_HASH).stat().st_size != file_size:
     with open(FILE_TO_HASH, 'wb') as wire:
         wire.write(os.urandom(file_size))
