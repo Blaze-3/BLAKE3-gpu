@@ -6,7 +6,7 @@
 // Do not change this, it has to be equal to chunk size
 #define BUFFER_LEN CHUNK_LEN
 // Max depth of thread nesting allowed. Should technically be log2(SNICKER)
-#define NEST_LEVELS 2
+#define NEST_LEVELS 3
 
 int main(int argc, char *argv[]) {
     if(argc<2) {

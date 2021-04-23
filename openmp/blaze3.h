@@ -13,7 +13,9 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 5;
+const u32 SNICKER = 1U << 6;
+// Factory height and snicker size have an inversly propotional relationship
+const u32 FACTORY_HT = 10;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
@@ -22,6 +24,8 @@ const u32 ROOT = 1 << 3;
 const u32 KEYED_HASH = 1 << 4;
 const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
+
+const int usize = sizeof(u32) * 8;
 
 u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
@@ -34,7 +38,6 @@ const int MSG_PERMUTATION[] = {
 };
 
 u32 rotr(u32 value, int shift) {
-    int usize = sizeof(u32) * 8;
     return (value >> shift)|(value << (usize - shift));
 }
 
@@ -295,7 +298,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
     // Continue till topmost level reached. Guaranteed only one node there
     // Root hash the final node
     Chunk root(flags, key);
-    for(int i=0; i<64; i++) {
+    for(int i=0; i<FACTORY_HT; i++) {
         vector<Chunk> subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
@@ -320,7 +323,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
             Chunk tmp = merge(tmp2, tmp1);
             subtrees.push_back(tmp);
         }
-        if(i<63)
+        if(i<FACTORY_HT-1)
             factory[i+1].push_back(subtrees[0]);
         else
             root = subtrees[0];
