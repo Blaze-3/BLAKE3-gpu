@@ -341,8 +341,18 @@ Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
     Chunk left, right;
     // parallelism here
     // left and right computation can be done simultaneously
-    left = hash_many(first, first+n/2);
-    right = hash_many(first+n/2, last);
+    #pragma omp parallel
+    {
+        #pragma omp single
+        {
+            #pragma omp task
+            left = hash_many(first, first+n/2);
+            #pragma omp task
+            right = hash_many(first+n/2, last);
+        }
+    }
+    
+    // #pragma omp taskwait
     // parallelism ends
 
     Chunk parent(left.flags, left.key);

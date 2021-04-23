@@ -1,9 +1,8 @@
-#include "blaze3.h"
+#include "sequential.h"
 #include <fstream>
 #include <iomanip>
 
-// Do not change this, it has to be equal to chunk size
-#define BUFFER_LEN CHUNK_LEN
+#define BUFFER_LEN 1024
 
 int main(int argc, char *argv[]) {
     if(argc<2) {
@@ -18,7 +17,6 @@ int main(int argc, char *argv[]) {
         cout << "Could not read file " << argv[1] << endl;
         return 1;
     }
-
     char buffer[BUFFER_LEN] = {0};
     file.read(buffer, BUFFER_LEN);
     while(file.gcount()) {

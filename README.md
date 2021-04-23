@@ -1,6 +1,7 @@
 # BLAKE3-gpu
 Parallelizing the BLAKE3 crypto hash function via the merkle tree structure
 
+### Current best speedup :zap: -> 2.5x
 
 ## What
 BLAKE3 is a gg crypto hash function. It has good scope for parallelism.  
@@ -14,4 +15,5 @@ We try to extract as much of that parallelism as possible by using GPUs.
 
 ## Development
 The `basic` directory has the reference implementations.
-Complete them first. The blake3 paper is also here for reference.
+Complete them first. The blake3 paper is also here for reference.  
+Openmp works fine, maybe try to move it to the GPU?

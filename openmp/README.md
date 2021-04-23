@@ -2,6 +2,7 @@
 
 How to use:  
 * Run `g++ main.cpp` or `clang++ main.cpp`
+* To use CPU parallelism use `compiler main.cpp -fopenmp`
 * Execute the file as `./a.{exe, out} input_file`
 
 ## Testing
