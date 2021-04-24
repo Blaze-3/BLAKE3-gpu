@@ -10,7 +10,7 @@ How to use:
 ## Testing
 ### Test for correctness
 Build the executable as mentioned above  
-Run `pytest -q`  
+Run `pytest -q -r N --tb=no`  
 
 ### Benchmark tests
 Build the executalbe as mentioned above.  
