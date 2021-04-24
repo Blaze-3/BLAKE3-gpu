@@ -2,6 +2,7 @@ import json
 import subprocess
 import os
 import platform
+import pytest
 
 
 if platform.system() == 'Windows':
@@ -19,13 +20,16 @@ filler = [x for x in range(0, 251)]
 total = 0
 passed = 0
 
-print("Running test cases")
+test_cases = []
 for case in vectors["cases"]:
-    total += 1
     lenx = case["input_len"]
     hashx = case["hash"]
     hashx_key = case["keyed_hash"]
     hashx_der = case["derive_key"]
+    test_cases.append((lenx, hashx))
+
+@pytest.mark.parametrize("lenx, hashx", test_cases)
+def test_vector(lenx, hashx):
     filler_size = 1 + lenx // 251
     data = filler * filler_size
     data = b''.join(bytes([x]) for x in data[:lenx])
@@ -33,7 +37,5 @@ for case in vectors["cases"]:
         wire.write(data)
     process = subprocess.run([EXECUTABLE, "test.bin"], stdout=subprocess.PIPE)
     result = process.stdout.decode().strip()
-    passed += result == hashx[:64]
     os.remove('test.bin')
-
-print(f"{passed} test cases passed out of {total}")
+    assert result == hashx[:64]
