@@ -1,14 +1,16 @@
-# CUDA version of BLAKE3
+# Openmp version of BLAKE3
 
+## Usage
 How to use:  
 * Run `g++ main.cpp` or `clang++ main.cpp`
 * To use CPU parallelism use `compiler main.cpp -fopenmp`
-* Execute the file as `./a.{exe, out} input_file`
+* Execute the file as `./a.{exe, out} input_file`  
+**Enhancement! -> Optimize the binary with -O3 while building the executable**  
 
 ## Testing
 ### Test for correctness
 Build the executable as mentioned above  
-Run `python3 test.py`  
+Run `pytest -q`  
 
 ### Benchmark tests
 Build the executalbe as mentioned above.  
