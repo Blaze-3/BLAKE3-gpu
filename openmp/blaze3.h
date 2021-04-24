@@ -56,8 +56,11 @@ void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
 }
 
 void round(u32 state[16], u32 m[16]) {
-    for(int i=0; i<4; i++)
-        g(state, i, i+4, i+8, i+12, m[2*i], m[2*i+1]);
+    // Mix the columns.
+    g(state, 0, 4, 8, 12, m[0], m[1]);
+    g(state, 1, 5, 9, 13, m[2], m[3]);
+    g(state, 2, 6, 10, 14, m[4], m[5]);
+    g(state, 3, 7, 11, 15, m[6], m[7]);
     // Mix the diagonals.
     g(state, 0, 5, 10, 15, m[8], m[9]);
     g(state, 1, 6, 11, 12, m[10], m[11]);
@@ -73,12 +76,13 @@ void permute(u32 m[16]) {
         m[i] = permuted[i];
 }
 
-u32* compress(
+void compress(
     u32 chaining_value[8],
     u32 block_words[16],
     u64 counter,
     u32 block_len,
-    u32 flags
+    u32 flags,
+    u32 output[16]
 ) {
     u32 *state = new u32[16] {
         chaining_value[0],
@@ -120,7 +124,7 @@ u32* compress(
         state[i + 8] ^= chaining_value[i];
     }
 
-    return state;
+    copy(state, state+16, output);
 }
 
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
@@ -163,16 +167,15 @@ void Chunk::compress_chunk(u32 out_flags) {
         // cout << "Compressing parent\n";
         // only 1 message block
         // raw hash for root node
-        u32 *transfer = compress(
+        compress(
             key,
             data.data(),
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
-            flags | out_flags
+            flags | out_flags,
+            raw_hash
         );
-        copy(transfer, transfer+8, hash);
-        copy(transfer, transfer+16, raw_hash);
-        delete[] transfer;
+        copy(raw_hash, raw_hash+8, hash);
     }
     else {
         // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
@@ -215,16 +218,15 @@ void Chunk::compress_chunk(u32 out_flags) {
                 flagger |= CHUNK_END | out_flags;
 
             // raw hash for root node
-            u32 *full_transfer = compress(
+            compress(
                 chaining_value,
                 block_words.data(),
                 counter,
                 block_len,
-                flagger
+                flagger,
+                raw_hash
             );
-            copy(full_transfer, full_transfer+16, raw_hash);
-            copy(full_transfer, full_transfer+8, chaining_value);
-            delete[] full_transfer;
+            copy(raw_hash, raw_hash+8, chaining_value);
         }
         copy(chaining_value, chaining_value+8, hash);
     }
@@ -372,12 +374,12 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
     u64 output_block_counter = 0;
     u64 i=0, k=2*OUT_LEN;
     auto osb = begin(out_slice);
+    u32 words[16] = {};
     for(; int(out_slice.size()-i)>0; i+=k) {
         node.counter = output_block_counter;
         node.compress_chunk(ROOT);
         
         // words is u32[16]
-        u32* words = new u32[16];
         copy(node.raw_hash, node.raw_hash+16, words);
         
         vector<u8> out_block(min(k, (u64)out_slice.size()-i));
@@ -390,6 +392,5 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
             out_slice[i+j] = out_block[j];
         
         ++output_block_counter;
-        delete []words;
     }
 }

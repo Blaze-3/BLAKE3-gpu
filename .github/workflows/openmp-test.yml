@@ -1,4 +1,4 @@
-name: Open-MP testing
+name: OpenMP test
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
         pip install flake8 pytest
     - name: Build project
       run: |
-        clang++ main.cpp
+        clang++ main.cpp -fopenmp
     - name: Test algorithm
       run: |
         pytest

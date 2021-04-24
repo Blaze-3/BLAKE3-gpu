@@ -1,13 +1,15 @@
 # CUDA version of BLAKE3
 
+## Usage
 How to use:  
 * Run `g++ main.cpp` or `clang++ main.cpp`
-* Execute the file as `./a.{exe, out} input_file`
+* Execute the file as `./a.{exe, out} input_file`  
+**Enhancement! -> Optimize the binary with -O3 while building the executable**  
 
 ## Testing
 ### Test for correctness
 Build the executable as mentioned above  
-Run `python3 test.py`  
+Run `pytest -q -r N --tb=no`  
 
 ### Benchmark tests
 Build the executalbe as mentioned above.  

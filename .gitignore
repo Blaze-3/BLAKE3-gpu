@@ -2,6 +2,7 @@
 .vscode/
 *.bin
 *b3sum*
+*perf*
 __pycache__/
 
 # Prerequisites

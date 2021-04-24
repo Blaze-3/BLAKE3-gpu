@@ -13,7 +13,10 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 5;
+const u32 SNICKER = 1U << 6;
+// Factory height and snicker size have an inversly propotional relationship
+// FACTORY_HT * (log2 SNICKER) + 10 >= 64 
+const u32 FACTORY_HT = 9;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
@@ -22,6 +25,8 @@ const u32 ROOT = 1 << 3;
 const u32 KEYED_HASH = 1 << 4;
 const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
+
+const int usize = sizeof(u32) * 8;
 
 u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
@@ -34,7 +39,6 @@ const int MSG_PERMUTATION[] = {
 };
 
 u32 rotr(u32 value, int shift) {
-    int usize = sizeof(u32) * 8;
     return (value >> shift)|(value << (usize - shift));
 }
 
@@ -72,14 +76,15 @@ void permute(u32 m[16]) {
         m[i] = permuted[i];
 }
 
-u32* compress(
+void compress(
     u32 chaining_value[8],
     u32 block_words[16],
     u64 counter,
     u32 block_len,
-    u32 flags
+    u32 flags,
+    u32 output[16]
 ) {
-    u32 *state = new u32[16]{
+    u32 *state = new u32[16] {
         chaining_value[0],
         chaining_value[1],
         chaining_value[2],
@@ -119,7 +124,7 @@ u32* compress(
         state[i + 8] ^= chaining_value[i];
     }
 
-    return state;
+    copy(state, state+16, output);
 }
 
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
@@ -162,16 +167,15 @@ void Chunk::compress_chunk(u32 out_flags) {
         // cout << "Compressing parent\n";
         // only 1 message block
         // raw hash for root node
-        u32 *transfer = compress(
+        compress(
             key,
             data.data(),
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
-            flags | out_flags
+            flags | out_flags,
+            raw_hash
         );
-        copy(transfer, transfer+8, hash);
-        copy(transfer, transfer+16, raw_hash);
-        delete[] transfer;
+        copy(raw_hash, raw_hash+8, hash);
     }
     else {
         // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
@@ -214,35 +218,31 @@ void Chunk::compress_chunk(u32 out_flags) {
                 flagger |= CHUNK_END | out_flags;
 
             // raw hash for root node
-            u32 *full_transfer = compress(
+            compress(
                 chaining_value,
                 block_words.data(),
                 counter,
                 block_len,
-                flagger
+                flagger,
+                raw_hash
             );
-            copy(full_transfer, full_transfer+16, raw_hash);
-            copy(full_transfer, full_transfer+8, chaining_value);
-            delete[] full_transfer;
+            copy(raw_hash, raw_hash+8, chaining_value);
         }
         copy(chaining_value, chaining_value+8, hash);
     }
     // cout << "Compress worked\n";
 }
 
-Chunk hash_many(vector<Chunk>::iterator, vector<Chunk>::iterator);
-Chunk merge(Chunk left, Chunk right);
-void hash_root(Chunk node, vector<u8> &out_slice);
+Chunk hash_many(Chunk *data, int first, int last);
+Chunk merge(Chunk &left, Chunk &right);
+void hash_root(Chunk &node, vector<u8> &out_slice);
 
 struct Hasher {
     u32 key[8];
-    u32 cv_stack[54][8];
     u32 flags;
-    u8 cv_stack_len;
     u64 ctr;
-    // Factory is an array of 64 possible rows of chunks
-    // Correct size of array is log(2^64) base SNICKER
-    vector<Chunk> factory[64];
+    // Factory is an array of FACTORY_HT possible SNICKER bars
+    vector<Chunk> factory[FACTORY_HT];
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags);
@@ -253,19 +253,13 @@ struct Hasher {
 };
 
 Hasher Hasher::new_internal(u32 key[8], u32 flags) {
-    Hasher tmp = Hasher{
-        {}, // key
-        {{}},  // cv_stack
+    return Hasher{
+        {key[0], key[1], key[2], key[3],
+         key[4], key[5], key[6], key[7]
+        },
         flags,
-        0,
-        0
+        0   // counter
     };
-    // Not sure about keys and cv_stack, will set them by hand
-    copy(key, key+8, tmp.key);
-    for(int i=0; i<54; i++)
-        for(int j=0; j<8; j++)
-            tmp.cv_stack[i][j] = 0;
-    return tmp;
 }
 
 Hasher Hasher::_new() {
@@ -279,7 +273,7 @@ void Hasher::update(vector<u8> &input) {
     ++ctr;
     while(factory[level].size() == SNICKER) {
         // nodes move to upper levels if lower one is one SNICKER long
-        Chunk subtree = hash_many(begin(factory[level]), end(factory[level]));
+        Chunk subtree = hash_many(factory[level].data(), 0, factory[level].size());
         factory[level].clear();
         ++level;
         factory[level].push_back(subtree);
@@ -295,16 +289,16 @@ void Hasher::finalize(vector<u8> &out_slice) {
     // Continue till topmost level reached. Guaranteed only one node there
     // Root hash the final node
     Chunk root(flags, key);
-    for(int i=0; i<64; i++) {
+    for(int i=0; i<FACTORY_HT; i++) {
         vector<Chunk> subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
             continue;
-        vector<Chunk>::iterator start = begin(factory[i]);
+        int start = 0;
         while(divider) {
             if(n&divider) {
                 // cout << "hashing " << divider << " at level " << i << endl;
-                subtrees.push_back(hash_many(start, start+divider));
+                subtrees.push_back(hash_many(factory[i].data(), start, start+divider));
                 start += divider;
             }
             divider >>= 1;
@@ -320,7 +314,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
             Chunk tmp = merge(tmp2, tmp1);
             subtrees.push_back(tmp);
         }
-        if(i<63)
+        if(i<FACTORY_HT-1)
             factory[i+1].push_back(subtrees[0]);
         else
             root = subtrees[0];
@@ -329,20 +323,20 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 // A divide and conquer approach
-Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
+Chunk hash_many(Chunk *data, int first, int last) {
     // n will always be a power of 2
     int n = last-first;
     if(n == 1) {
-        first->compress_chunk();
-        return *first;
+        data[first].compress_chunk();
+        return data[first];
     }
     // cout << "Called hash many for size: " << n << endl;
 
     Chunk left, right;
     // parallelism here
     // left and right computation can be done simultaneously
-    left = hash_many(first, first+n/2);
-    right = hash_many(first+n/2, last);
+    left = hash_many(data, first, first+n/2);
+    right = hash_many(data, first+n/2, last);
     // parallelism ends
 
     Chunk parent(left.flags, left.key);
@@ -354,7 +348,7 @@ Chunk hash_many(vector<Chunk>::iterator first, vector<Chunk>::iterator last) {
     return parent;
 }
 
-Chunk merge(Chunk left, Chunk right) {
+Chunk merge(Chunk &left, Chunk &right) {
     // cout << "Called merge once\n";
     left.compress_chunk();
     right.compress_chunk();
@@ -366,21 +360,21 @@ Chunk merge(Chunk left, Chunk right) {
     return parent;
 }
 
-void hash_root(Chunk node, vector<u8> &out_slice) {
+void hash_root(Chunk &node, vector<u8> &out_slice) {
     // the last message block must not be hashed like the others
     // it needs to be hashed with the root flag
     u64 output_block_counter = 0;
     u64 i=0, k=2*OUT_LEN;
     auto osb = begin(out_slice);
+    u32 words[16] = {};
     for(; int(out_slice.size()-i)>0; i+=k) {
         node.counter = output_block_counter;
         node.compress_chunk(ROOT);
         
         // words is u32[16]
-        u32* words = new u32[16];
         copy(node.raw_hash, node.raw_hash+16, words);
         
-        vector<u8> out_block(osb+i, osb+i+min(k, (u64)out_slice.size()-i));
+        vector<u8> out_block(min(k, (u64)out_slice.size()-i));
         for(u32 l=0; l<out_block.size(); l+=4) {
             for(u32 j=0; j<min(4U, (u32)out_block.size()-l); j++)
                 out_block[l+j] = (words[l/4]>>(8*j)) & 0x000000FF;
@@ -390,6 +384,5 @@ void hash_root(Chunk node, vector<u8> &out_slice) {
             out_slice[i+j] = out_block[j];
         
         ++output_block_counter;
-        delete []words;
     }
 }
