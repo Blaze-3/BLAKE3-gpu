@@ -236,7 +236,7 @@ void Chunk::compress_chunk(u32 out_flags) {
     // cout << "Compress worked\n";
 }
 
-Chunk hash_many(Chunk *data, int first, int last, Chunk parent);
+void hash_many(Chunk *data, int first, int last, Chunk parent);
 Chunk merge(Chunk &left, Chunk &right);
 void hash_root(Chunk &node, vector<u8> &out_slice);
 
@@ -303,7 +303,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
             if(n&divider) {
                 // cout << "hashing " << divider << " at level " << i << endl;
                 Chunk pusher;
-                hash_many(factory[i].data(), start, start+divider,pusher)
+                hash_many(factory[i].data(), start, start+divider,pusher);
                 subtrees.push_back(pusher);
                 start += divider;
             }
@@ -363,7 +363,7 @@ void hash_many(Chunk *data, int first, int last, Chunk parent){
     Chunk outer;
     if (n==1){
         data[first].compress_chunk();
-        parent=data[first]
+        parent=data[first];
     }
     else{
         Chunk left, right;
