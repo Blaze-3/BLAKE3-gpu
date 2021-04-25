@@ -30,6 +30,7 @@ const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
 mutex factory_lock;
+const int IS_ASYNC = 0;
 
 u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
@@ -128,6 +129,7 @@ void compress(
     }
 
     copy(state, state+16, output);
+    delete[] state;
 }
 
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
@@ -278,7 +280,9 @@ void propagate(Hasher *h) {
         ++level;
         h->factory[level].push_back(subtree);
     }
+    #if IS_ASYNC
     factory_lock.unlock();
+    #endif
 } 
 
 void Hasher::update(vector<u8> &input) {
@@ -288,9 +292,13 @@ void Hasher::update(vector<u8> &input) {
         copy(begin(bar), end(bar), back_inserter(factory[0]));
         bar.clear();
         // Let this run in the background
+        // Async version slows down execution by 2x
+        #if IS_ASYNC
         factory_lock.lock();
+        static_cast<void>(async(propagate, this));
+        #else
         propagate(this);
-        // async(propagate, this);
+        #endif
     }
 }
 
@@ -301,7 +309,10 @@ void Hasher::finalize(vector<u8> &out_slice) {
     // Pass on the new node to the upper level
     // Continue till topmost level reached. Guaranteed only one node there
     // Root hash the final node
-    // copy(begin(bar), end(bar), back_inserter(factory[0]));
+    #if IS_ASYNC
+    factory_lock.lock();
+    #endif
+    copy(begin(bar), end(bar), back_inserter(factory[0]));
 
     Chunk root(flags, key);
     for(int i=0; i<FACTORY_HT; i++) {
