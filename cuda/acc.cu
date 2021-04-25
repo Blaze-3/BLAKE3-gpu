@@ -236,7 +236,7 @@ void Chunk::compress_chunk(u32 out_flags) {
     // cout << "Compress worked\n";
 }
 
-Chunk hash_many(Chunk *data, int first, int last);
+Chunk hash_many(Chunk *data, int first, int last, Chunk parent);
 Chunk merge(Chunk &left, Chunk &right);
 void hash_root(Chunk &node, vector<u8> &out_slice);
 
@@ -276,7 +276,8 @@ void Hasher::update(vector<u8> &input) {
     ++ctr;
     while(factory[level].size() == SNICKER) {
         // nodes move to upper levels if lower one is one SNICKER long
-        Chunk subtree = hash_many(factory[level].data(), 0, factory[level].size());
+        Chunk subtree;
+        hash_many(factory[level].data(), 0, factory[level].size(),subtree);
         factory[level].clear();
         ++level;
         factory[level].push_back(subtree);
@@ -301,7 +302,9 @@ void Hasher::finalize(vector<u8> &out_slice) {
         while(divider) {
             if(n&divider) {
                 // cout << "hashing " << divider << " at level " << i << endl;
-                subtrees.push_back(hash_many(factory[i].data(), start, start+divider));
+                Chunk pusher;
+                hash_many(factory[i].data(), start, start+divider,pusher)
+                subtrees.push_back(pusher);
                 start += divider;
             }
             divider >>= 1;
@@ -326,9 +329,10 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 // A divide and conquer approach
-__global__ Chunk hash_many(Chunk *data, int first, int last) {
+/*Chunk hash_many(Chunk *data, int first, int last) {
     // n will always be a power of 2
     int n = last-first;
+    cudaStream_t s1, s2;
     if(n == 1) {
         data[first].compress_chunk();
         return data[first];
@@ -338,8 +342,11 @@ __global__ Chunk hash_many(Chunk *data, int first, int last) {
     Chunk left, right;
     // parallelism here
     // left and right computation can be done simultaneously
-    left = hash_many(data, first, first+n/2);
-    right = hash_many(data, first+n/2, last);
+    cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    left = hash_many<<<..., s1 >>>(data, first, first+n/2);
+
+    cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    right = hash_many<<<..., s2 >>>(data, first+n/2, last);
     // parallelism ends
 
     Chunk parent(left.flags, left.key);
@@ -349,6 +356,26 @@ __global__ Chunk hash_many(Chunk *data, int first, int last) {
 
     parent.compress_chunk();
     return parent;
+}*/
+
+void hash_many(Chunk *data, int first, int last, Chunk parent){
+    int n=last-first;
+    Chunk outer;
+    if (n==1){
+        data[first].compress_chunk();
+        parent=data[first]
+    }
+    else{
+        Chunk left, right;
+
+        hash_many(data, first, first+n/2, left);
+        hash_many(data, first+n/2, last, right);
+
+        parent.flags |= PARENT;
+        parent.data.insert(end(parent.data), begin(left.hash), end(left.hash));
+        parent.data.insert(end(parent.data), begin(right.hash), end(right.hash));
+    }
+
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
