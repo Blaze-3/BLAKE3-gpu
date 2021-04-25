@@ -1,8 +1,8 @@
 # BLAKE3-gpu
 Parallelizing the BLAKE3 crypto hash function via the merkle tree structure
 
-### Current best speedup :zap: -> 2.5x
-### Compared to original blake3 -> 20x (slowdown)
+### Current best speedup :zap: -> 3x (with 8 physical cores)
+### Compared to original blake3 -> 4x (slowdown)
 
 ## What
 BLAKE3 is a gg crypto hash function. It has good scope for parallelism.  
