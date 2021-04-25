@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
+#include <future>
+#include <mutex>
 using namespace std;
 
 using u32 = unsigned int;
@@ -27,6 +29,7 @@ const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
+mutex factory_lock;
 
 u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
@@ -141,7 +144,7 @@ struct Chunk {
     // use in all other cases
     vector<u32> data;
     u32 flags;
-    u32 hash[8], raw_hash[16];
+    u32 raw_hash[16];
     u32 key[8];
     // only useful for leaf nodes
     u64 counter;
@@ -175,7 +178,6 @@ void Chunk::compress_chunk(u32 out_flags) {
             flags | out_flags,
             raw_hash
         );
-        copy(raw_hash, raw_hash+8, hash);
     }
     else {
         // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
@@ -228,7 +230,6 @@ void Chunk::compress_chunk(u32 out_flags) {
             );
             copy(raw_hash, raw_hash+8, chaining_value);
         }
-        copy(chaining_value, chaining_value+8, hash);
     }
     // cout << "Compress worked\n";
 }
@@ -243,6 +244,7 @@ struct Hasher {
     u64 ctr;
     // Factory is an array of FACTORY_HT possible SNICKER bars
     vector<Chunk> factory[FACTORY_HT];
+    vector<Chunk> bar;
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags);
@@ -254,8 +256,9 @@ struct Hasher {
 
 Hasher Hasher::new_internal(u32 key[8], u32 flags) {
     return Hasher{
-        {key[0], key[1], key[2], key[3],
-         key[4], key[5], key[6], key[7]
+        {
+            key[0], key[1], key[2], key[3],
+            key[4], key[5], key[6], key[7]
         },
         flags,
         0   // counter
@@ -266,19 +269,29 @@ Hasher Hasher::_new() {
     return new_internal(IV, 0);
 }
 
-void Hasher::update(vector<u8> &input) {
-    // New style
+void propagate(Hasher *h) {
     int level=0;
-    factory[level].push_back(Chunk(input, flags, key, ctr));
-    ++ctr;
-    while(factory[level].size() == SNICKER) {
+    while(h->factory[level].size() == SNICKER) {
         // nodes move to upper levels if lower one is one SNICKER long
-        Chunk subtree = hash_many(factory[level], 0, factory[level].size());
-        factory[level].clear();
+        Chunk subtree = hash_many(h->factory[level], 0, h->factory[level].size());
+        h->factory[level].clear();
         ++level;
-        factory[level].push_back(subtree);
+        h->factory[level].push_back(subtree);
     }
-    // cout << "Chunks in level: " << factory[level].size() << endl;
+    factory_lock.unlock();
+} 
+
+void Hasher::update(vector<u8> &input) {
+    bar.push_back(Chunk(input, flags, key, ctr));
+    ++ctr;
+    if(bar.size() == SNICKER) {
+        copy(begin(bar), end(bar), back_inserter(factory[0]));
+        bar.clear();
+        // Let this run in the background
+        factory_lock.lock();
+        propagate(this);
+        // async(propagate, this);
+    }
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
@@ -288,6 +301,8 @@ void Hasher::finalize(vector<u8> &out_slice) {
     // Pass on the new node to the upper level
     // Continue till topmost level reached. Guaranteed only one node there
     // Root hash the final node
+    // copy(begin(bar), end(bar), back_inserter(factory[0]));
+
     Chunk root(flags, key);
     for(int i=0; i<FACTORY_HT; i++) {
         vector<Chunk> subtrees;
@@ -349,8 +364,8 @@ Chunk hash_many(vector<Chunk> &data, int first, int last) {
 
     Chunk parent(left.flags, left.key);
     parent.flags |= PARENT;
-    parent.data.insert(end(parent.data), begin(left.hash), end(left.hash));
-    parent.data.insert(end(parent.data), begin(right.hash), end(right.hash));
+    parent.data.insert(end(parent.data), left.raw_hash, left.raw_hash+8);
+    parent.data.insert(end(parent.data), right.raw_hash, right.raw_hash+8);
 
     parent.compress_chunk();
     return parent;
@@ -363,8 +378,8 @@ Chunk merge(Chunk &left, Chunk &right) {
 
     Chunk parent(left.flags, left.key);
     parent.flags |= PARENT;
-    parent.data.insert(end(parent.data), begin(left.hash), end(left.hash));
-    parent.data.insert(end(parent.data), begin(right.hash), end(right.hash));
+    parent.data.insert(end(parent.data), left.raw_hash, left.raw_hash+8);
+    parent.data.insert(end(parent.data), right.raw_hash, right.raw_hash+8);
     return parent;
 }
 

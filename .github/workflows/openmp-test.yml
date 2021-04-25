@@ -30,7 +30,7 @@ jobs:
         pip install flake8 pytest
     - name: Build project
       run: |
-        clang++ main.cpp -fopenmp
+        clang++ main.cpp
     - name: Test algorithm
       run: |
         pytest
