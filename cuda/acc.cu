@@ -326,7 +326,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 // A divide and conquer approach
-Chunk hash_many(Chunk *data, int first, int last) {
+__global__ Chunk hash_many(Chunk *data, int first, int last) {
     // n will always be a power of 2
     int n = last-first;
     if(n == 1) {
