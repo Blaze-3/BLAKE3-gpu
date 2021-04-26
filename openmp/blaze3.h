@@ -15,10 +15,10 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 6;
+const u32 SNICKER = 1U << 7;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 9;
+const u32 FACTORY_HT = 8;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
@@ -86,26 +86,15 @@ void compress(
     u64 counter,
     u32 block_len,
     u32 flags,
-    u32 output[16]
+    u32 state[16]
 ) {
-    u32 *state = new u32[16] {
-        chaining_value[0],
-        chaining_value[1],
-        chaining_value[2],
-        chaining_value[3],
-        chaining_value[4],
-        chaining_value[5],
-        chaining_value[6],
-        chaining_value[7],
-        IV[0],
-        IV[1],
-        IV[2],
-        IV[3],
-        (u32)counter,
-        (u32)(counter >> 32),
-        block_len,
-        flags,
-    };
+    copy(chaining_value, chaining_value+8, state);
+    copy(IV, IV+4, state+8);
+    state[12] = (u32)counter;
+    state[13] = (u32)(counter >> 32);
+    state[14] = block_len;
+    state[15] = flags;
+
     u32 block[16];
     copy(block_words, block_words+16, block);
     
@@ -127,9 +116,6 @@ void compress(
         state[i] ^= state[i + 8];
         state[i + 8] ^= chaining_value[i];
     }
-
-    copy(state, state+16, output);
-    delete[] state;
 }
 
 void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
