@@ -3,6 +3,7 @@
 *.bin
 *b3sum*
 *perf*
+*.exp
 __pycache__/
 
 # Prerequisites

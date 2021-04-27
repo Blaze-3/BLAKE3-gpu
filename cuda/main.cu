@@ -1,4 +1,4 @@
-#include "blaze3.h"
+#include "blaze3.cuh"
 #include <fstream>
 #include <iomanip>
 
