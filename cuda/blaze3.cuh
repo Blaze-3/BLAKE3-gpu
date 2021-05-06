@@ -350,6 +350,8 @@ void Hasher::finalize(vector<u8> &out_slice) {
 
 // A divide and conquer approach
 void hash_many(Chunk *data, int first, int last, Chunk *parent) {
+    
+    /*
     // n will always be a power of 2
     int n = last-first;
     if(n == 1) {
@@ -387,7 +389,46 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     memcpy(parent->data, left.raw_hash, 32);
     memcpy(parent->data+8, right.raw_hash, 32);
 
-    parent->compress_chunk();
+    parent->compress_chunk();*/
+
+    //copy all the data
+    
+    // call a kernel 
+    int n = last-first;
+    if(n == 1) {
+        data[first].compress_chunk();
+        // move all elements to parent
+
+        // TODO: convert to cudaMemcpy
+        memcpy(parent, data+first, sizeof(*parent));
+        return;
+    }
+    //pointers for device
+    Chunk *d_data;
+    Chunk *d_parent;
+    int d_first;
+    int d_last;
+    //allocate on device
+    CudaMalloc(&d_data,sizeof(Chunk));
+    CudaMalloc(&d_parent,sizeof(Chunk));
+    CudaMalloc(&d_first,sizeof(int));
+    CudaMalloc(&d_last,sizeof(int));
+    //populate on device
+    cudaMemcpy(d_data,data,sizeof(data),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_parent,parent,sizeof(parent),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_first,&first,sizeof(int),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_last,&last,sizeof(int),cudaMemcpyHostToDevice);
+    //call hashmany
+
+
+}
+
+__global__ d_hashmany(Chunk d_data, int d_first, int d_last, Chunk d_parent){
+    int n = last-first;
+    if(n==1){
+        //data[first].compress_chunk();
+
+    }
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
