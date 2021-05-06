@@ -118,9 +118,9 @@ void compress(
     }
 }
 
-void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
+void words_from_little_endian_bytes(u8 *bytes, u32 *words, u32 bytes_len) {
     u32 tmp;
-    for(u32 i=0; i<bytes.size(); i+=4) {
+    for(u32 i=0; i<bytes_len; i+=4) {
         tmp = (bytes[i+3]<<24) | (bytes[i+2]<<16) | (bytes[i+1]<<8) | bytes[i];
         words[i/4] = tmp;
     }
@@ -128,98 +128,104 @@ void words_from_little_endian_bytes(vector<u8> &bytes, vector<u32> &words) {
 
 struct Chunk {
     // use only when it is a leaf node
-    vector<u8> leaf_data;
+    // leaf data may have less than 1024 bytes
+    u8 leaf_data[1024];
+    u32 leaf_len;
     // use in all other cases
-    vector<u32> data;
+    // data will always have 64 bytes
+    u32 data[16];
     u32 flags;
     u32 raw_hash[16];
     u32 key[8];
     // only useful for leaf nodes
     u64 counter;
     // Constructor for leaf nodes
-    Chunk(vector<u8> &input, u32 _flags, u32 *_key, u64 ctr) : leaf_data(input) {
+    Chunk(vector<u8> &input, u32 _flags, u32 *_key, u64 ctr){
         counter = ctr;
         flags = _flags;
         copy(_key, _key+8, key);
+        copy(begin(input), end(input), begin(leaf_data));
+        leaf_len = input.size();
     }
     Chunk(u32 _flags, u32 *_key) {
         counter = 0;
         flags = _flags;
         copy(_key, _key+8, key);
+        leaf_len = 0;
     }
-    Chunk() {}
+    Chunk() : leaf_len(0) {}
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
 };
 
 void Chunk::compress_chunk(u32 out_flags) {
-    // cout << "Compress called\n";
     if(flags&PARENT) {
-        // cout << "Compressing parent\n";
-        // only 1 message block
-        // raw hash for root node
         compress(
             key,
-            data.data(),
+            data,
             0,  // counter is always zero for parent nodes
             BLOCK_LEN,
             flags | out_flags,
             raw_hash
         );
+        return;
     }
-    else {
-        // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
-        u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
-        copy(key, key+8, chaining_value);
 
-        bool empty_input = leaf_data.empty();
-        if(empty_input) {
-            // cout << "empty yo\n";
-            for(u32 i=0; i<BLOCK_LEN; i++)
-                leaf_data.push_back(0U);
-        }
+    u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
+    copy(key, key+8, chaining_value);
 
-        for(u32 i=0; i<leaf_data.size(); i+=BLOCK_LEN) {
-            flagger = flags;
-            // for the last message block
-            if(i+BLOCK_LEN > leaf_data.size())
-                block_len = leaf_data.size()%BLOCK_LEN;
-            else
-                block_len = BLOCK_LEN;
-
-            // special case
-            if(empty_input)
-                block_len = 0;
-            
-            vector<u32> block_words(16, 0);
-            vector<u8> block_cast(leaf_data.begin()+i, leaf_data.begin()+i+block_len);
-            
-            // to pad the message block
-            if(block_cast.size()%4) {
-                for(int j=4 - (block_cast.size()%4); j>0; j--)
-                    block_cast.push_back(0U);
-            }
-            
-            words_from_little_endian_bytes(block_cast, block_words);
-            
-            if(i==0)
-                flagger |= CHUNK_START;
-            if(i+BLOCK_LEN >= leaf_data.size())
-                flagger |= CHUNK_END | out_flags;
-
-            // raw hash for root node
-            compress(
-                chaining_value,
-                block_words.data(),
-                counter,
-                block_len,
-                flagger,
-                raw_hash
-            );
-            copy(raw_hash, raw_hash+8, chaining_value);
-        }
+    bool empty_input = (leaf_len==0);
+    if(empty_input) {
+        for(u32 i=0; i<BLOCK_LEN; i++)
+            leaf_data[i] = 0U;
+        leaf_len = BLOCK_LEN;
     }
-    // cout << "Compress worked\n";
+
+    for(u32 i=0; i<leaf_len; i+=BLOCK_LEN) {
+        flagger = flags;
+        // for the last message block
+        if(i+BLOCK_LEN > leaf_len)
+            block_len = leaf_len%BLOCK_LEN;
+        else
+            block_len = BLOCK_LEN;
+
+        // special case
+        if(empty_input)
+            block_len = 0;
+        
+        u32 block_words[16];
+        memset(block_words, 0, 16*sizeof(*block_words));
+        u32 new_block_len(block_len);
+        if(block_len%4)
+            new_block_len += 4 - (block_len%4);
+        
+        // BLOCK_LEN is the max possible length of block_cast
+        u8 block_cast[BLOCK_LEN];
+        // TODO: Convert to cudaMemset
+        memset(block_cast, 0, new_block_len*sizeof(*block_cast));
+        // TODO: convert to cudaMemcpy
+        memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
+        
+        words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+
+        if(i==0)
+            flagger |= CHUNK_START;
+        if(i+BLOCK_LEN >= leaf_len)
+            flagger |= CHUNK_END | out_flags;
+
+        // raw hash for root node
+        compress(
+            chaining_value,
+            block_words,
+            counter,
+            block_len,
+            flagger,
+            raw_hash
+        );
+
+        // TODO: convert to cudaMemcpy
+        copy(raw_hash, raw_hash+8, chaining_value);
+    }
 }
 
 Chunk hash_many(vector<Chunk> &data, int first, int last);
@@ -272,7 +278,7 @@ void propagate(Hasher *h) {
 } 
 
 void Hasher::update(vector<u8> &input) {
-    bar.push_back(Chunk(input, flags, key, ctr));
+    bar.emplace_back(input, flags, key, ctr);
     ++ctr;
     if(bar.size() == SNICKER) {
         copy(begin(bar), end(bar), back_inserter(factory[0]));
@@ -361,8 +367,8 @@ Chunk hash_many(vector<Chunk> &data, int first, int last) {
 
     Chunk parent(left.flags, left.key);
     parent.flags |= PARENT;
-    parent.data.insert(end(parent.data), left.raw_hash, left.raw_hash+8);
-    parent.data.insert(end(parent.data), right.raw_hash, right.raw_hash+8);
+    memcpy(parent.data, left.raw_hash, 32);
+    memcpy(parent.data+8, right.raw_hash, 32);
 
     parent.compress_chunk();
     return parent;
@@ -375,8 +381,8 @@ Chunk merge(Chunk &left, Chunk &right) {
 
     Chunk parent(left.flags, left.key);
     parent.flags |= PARENT;
-    parent.data.insert(end(parent.data), left.raw_hash, left.raw_hash+8);
-    parent.data.insert(end(parent.data), right.raw_hash, right.raw_hash+8);
+    memcpy(parent.data, left.raw_hash, 32);
+    memcpy(parent.data+8, right.raw_hash, 32);
     return parent;
 }
 

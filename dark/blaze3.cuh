@@ -125,7 +125,6 @@ void words_from_little_endian_bytes(u8 *bytes, u32 *words, u32 bytes_len) {
 struct Chunk {
     // use only when it is a leaf node
     // leaf data may have less than 1024 bytes
-
     u8 leaf_data[1024];
     u32 leaf_len;
     // use in all other cases
@@ -156,7 +155,6 @@ struct Chunk {
 };
 
 void Chunk::compress_chunk(u32 out_flags) {
-    // cout << "Compress called\n";
     if(flags&PARENT) {
         compress(
             key,
@@ -166,77 +164,85 @@ void Chunk::compress_chunk(u32 out_flags) {
             flags | out_flags,
             raw_hash
         );
+        return;
     }
 
-    // for leaf nodes
-    else {
-        // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
-        u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
-        copy(key, key+8, chaining_value);
+    u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
+    copy(key, key+8, chaining_value);
 
-        bool empty_input = (leaf_len==0);
-        if(empty_input) {
-            // cout << "empty yo\n";
-            for(u32 i=0; i<BLOCK_LEN; i++)
-                leaf_data[i] = 0U;
-            leaf_len = BLOCK_LEN;
-        }
-
-        for(u32 i=0; i<leaf_len; i+=BLOCK_LEN) {
-            flagger = flags;
-            // for the last message block
-            if(i+BLOCK_LEN > leaf_len)
-                block_len = leaf_len%BLOCK_LEN;
-            else
-                block_len = BLOCK_LEN;
-
-            // special case
-            if(empty_input)
-                block_len = 0;
-            
-            // TODO: Convert to CudaMalloc
-            u32 *block_words = new u32[16];
-            // TODO: Convert to cudaMemset
-            memset(block_words, 0, 16*sizeof(*block_words));
-            u32 new_block_len(block_len);
-            if(block_len%4)
-                new_block_len += 4 - (block_len%4);
-            
-            // TODO: Convert to CudaMalloc
-            u8 *block_cast = new u8[new_block_len];
-            // TODO: Convert to cudaMemset
-            memset(block_cast, 0, new_block_len*sizeof(*block_cast));
-            // TODO: convert to cudaMemcpy
-            memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
-            
-            words_from_little_endian_bytes(block_cast, block_words, new_block_len);
-
-            // TODO: Convert to CudaFree
-            delete[] block_cast;
-            if(i==0)
-                flagger |= CHUNK_START;
-            if(i+BLOCK_LEN >= leaf_len)
-                flagger |= CHUNK_END | out_flags;
-
-            // raw hash for root node
-            compress(
-                chaining_value,
-                block_words,
-                counter,
-                block_len,
-                flagger,
-                raw_hash
-            );
-
-            // TODO: Convert to CudaFree
-            delete[] block_words;
-            copy(raw_hash, raw_hash+8, chaining_value);
-        }
+    bool empty_input = (leaf_len==0);
+    if(empty_input) {
+        for(u32 i=0; i<BLOCK_LEN; i++)
+            leaf_data[i] = 0U;
+        leaf_len = BLOCK_LEN;
     }
-    // cout << "Compress worked\n";
+
+    for(u32 i=0; i<leaf_len; i+=BLOCK_LEN) {
+        flagger = flags;
+        // for the last message block
+        if(i+BLOCK_LEN > leaf_len)
+            block_len = leaf_len%BLOCK_LEN;
+        else
+            block_len = BLOCK_LEN;
+
+        // special case
+        if(empty_input)
+            block_len = 0;
+        
+        u32 block_words[16];
+        memset(block_words, 0, 16*sizeof(*block_words));
+        u32 new_block_len(block_len);
+        if(block_len%4)
+            new_block_len += 4 - (block_len%4);
+        
+        // BLOCK_LEN is the max possible length of block_cast
+        u8 block_cast[BLOCK_LEN];
+        // TODO: Convert to cudaMemset
+        memset(block_cast, 0, new_block_len*sizeof(*block_cast));
+        // TODO: convert to cudaMemcpy
+        memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
+        
+        words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+
+        if(i==0)
+            flagger |= CHUNK_START;
+        if(i+BLOCK_LEN >= leaf_len)
+            flagger |= CHUNK_END | out_flags;
+
+        // raw hash for root node
+        compress(
+            chaining_value,
+            block_words,
+            counter,
+            block_len,
+            flagger,
+            raw_hash
+        );
+
+        // TODO: convert to cudaMemcpy
+        copy(raw_hash, raw_hash+8, chaining_value);
+    }
 }
 
-void hash_many(Chunk *data, int first, int last, Chunk *parent);
+void dark_hash(Chunk *data, int N, Chunk *result) {
+    // call the kernel, hash in parallel
+    // continue till one element, store it in result
+}
+
+// Sanity checks
+Chunk hash_many(Chunk *data, int first, int last) {
+    // n will always be a power of 2
+    int n = last-first;
+    if(n == 1) {
+        data[first].compress_chunk();
+        return data[first];
+    }
+    
+    Chunk ret;
+    dark_hash(data, n, &ret);
+    return ret;
+}
+
 Chunk merge(Chunk &left, Chunk &right);
 void hash_root(Chunk &node, vector<u8> &out_slice);
 
@@ -276,22 +282,15 @@ void Hasher::propagate() {
     int level=0;
     // nodes move to upper levels if lower one is one SNICKER long
     while(factory[level].size() == SNICKER) {
-        // TODO: Convert to CudaMalloc
-        Chunk *subtree = new Chunk;
-
-        // Move factory[level].data() to Cuda memory
-        hash_many(factory[level].data(), 0, factory[level].size(), subtree);
+        Chunk subtree = hash_many(factory[level].data(), 0, SNICKER);
         factory[level].clear();
         ++level;
-        factory[level].push_back(*subtree);
-
-        // TODO: Convert to CudaFree
-        delete subtree;
+        factory[level].push_back(subtree);
     }
 } 
 
 void Hasher::update(vector<u8> &input) {
-    bar.push_back(Chunk(input, flags, key, ctr));
+    bar.emplace_back(input, flags, key, ctr);
     ++ctr;
     if(bar.size() == SNICKER) {
         copy(begin(bar), end(bar), back_inserter(factory[0]));
@@ -301,12 +300,7 @@ void Hasher::update(vector<u8> &input) {
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
-    // cout << "Finalizing\n";
-    // New style
-    // At every level, compress biggest to smallest, then merge them all in the reverse order
-    // Pass on the new node to the upper level
-    // Continue till topmost level reached. Guaranteed only one node there
-    // Root hash the final node
+    // Look at openmp or cuda for explanation
     copy(begin(bar), end(bar), back_inserter(factory[0]));
 
     Chunk root(flags, key);
@@ -318,13 +312,8 @@ void Hasher::finalize(vector<u8> &out_slice) {
         int start = 0;
         while(divider) {
             if(n&divider) {
-                // TODO: Convert to CudaMalloc
-                Chunk *subtree = new Chunk;
-                // Move factory[i].data() to Cuda memory
-                hash_many(factory[i].data(), start, start+divider, subtree);
-                subtrees.push_back(*subtree);
-                // TODO: Convert to CudaFree
-                delete subtree;
+                Chunk subtree = hash_many(factory[i].data(), start, start+divider);
+                subtrees.push_back(subtree);
                 start += divider;
             }
             divider >>= 1;
@@ -346,48 +335,6 @@ void Hasher::finalize(vector<u8> &out_slice) {
             root = subtrees[0];
     }
     hash_root(root, out_slice);
-}
-
-// A divide and conquer approach
-void hash_many(Chunk *data, int first, int last, Chunk *parent) {
-    // n will always be a power of 2
-    int n = last-first;
-    if(n == 1) {
-        data[first].compress_chunk();
-        // move all elements to parent
-
-        // TODO: convert to cudaMemcpy
-        memcpy(parent, data+first, sizeof(*parent));
-        return;
-    }
-
-    // These should probably be allocated on CUDA memory I think
-    // These will be made on the executable's stack. Is that stack on CUDA mem?
-    Chunk left;
-    Chunk right;
-    // parallelism here
-
-    // cudaStream_t s1, s2;
-    // left and right computation can be done simultaneously
-    hash_many(data, first, first+n/2, &left);
-    hash_many(data, first+n/2, last, &right);
-    
-    // cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    // hash_many<<<..., s1 >>>(data, first, first+n/2, &left);
-
-    // cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    // hash_many<<<..., s2 >>>(data, first+n/2, last, &right);
-
-    // parallelism ends
-
-    parent->flags = left.flags | PARENT;
-    // 32 bytes need to be copied for all of these
-    // TODO: convert to cudaMemcpy
-    memcpy(parent->key, left.key, 32);
-    memcpy(parent->data, left.raw_hash, 32);
-    memcpy(parent->data+8, right.raw_hash, 32);
-
-    parent->compress_chunk();
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
