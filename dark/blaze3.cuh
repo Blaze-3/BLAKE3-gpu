@@ -186,11 +186,27 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
     }
 }
 
-__global__ void h_compute(Chunk *gdata, int N) {
+__global__ void h_compute(Chunk *gdata, int N, int jump) {
     int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    tid *= jump;
     if(tid >= N)
         return;
     gdata[tid].g_compress_chunk();
+}
+
+__global__ void h_move(Chunk *gdata, int N, int jump) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int lhs = (2*tid)*jump, rhs = (2*tid+1)*jump;
+    if(rhs >= N)
+        return;
+
+    // Parent is LHS itself
+    int out = lhs;
+
+    // Key and other flags are already present
+    gdata[out].flags |= PARENT;
+    g_memcpy(gdata[out].data, gdata[lhs].raw_hash, 32);
+    g_memcpy(gdata[out].data+8, gdata[rhs].raw_hash, 32);
 }
 
 void dark_hash(Chunk *data, int N, Chunk *result) {
@@ -207,11 +223,20 @@ void dark_hash(Chunk *data, int N, Chunk *result) {
     cudaMemcpy(g_data, data, N*sizeof(Chunk), cudaMemcpyHostToDevice);
 
     // i is the number of chunks being hashed by a thread (symbolically)
+    // total number of threads = N/i
     for(int i=1; i<N; i<<=1) {
         num_thr = min(128, N/i);
-        num_blk = ceil((N/i) / num_thr);
-        h_compute<<<num_blk, num_thr>>>(g_data, N);
+        num_blk = (N/i) / num_thr;
+        // compute all hashes
+        h_compute<<<num_blk, num_thr>>>(g_data, N, i);
+        // cudaDeviceSynchronize();
+        
+        num_thr /= 2;
+        // move hashes to parent nodes
+        h_move<<<num_blk, num_thr>>>(g_data, N, i);
+        // cudaDeviceSynchronize();
     }
 
+    cudaMemcpy(result, g_data, sizeof(Chunk), cudaMemcpyDeviceToHost);
     cudaFree(g_data);
 }

@@ -13,10 +13,10 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 7;
+const u32 SNICKER = 1U << 10;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 8;
+const u32 FACTORY_HT = 5;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
@@ -231,14 +231,26 @@ void dark_hash(Chunk*, int, Chunk*);
 Chunk hash_many(Chunk *data, int first, int last) {
     // n will always be a power of 2
     int n = last-first;
+    // Reduce GPU calling overhead
     if(n == 1) {
         data[first].compress_chunk();
         return data[first];
     }
     
     Chunk ret;
-    dark_hash(data, n, &ret);
+    dark_hash(data+first, n, &ret);
     return ret;
+
+    // CPU style execution
+    // Chunk left, right;
+    // left = hash_many(data, first, first+n/2);
+    // right = hash_many(data, first+n/2, last);
+    // Chunk parent(left.flags, left.key);
+    // parent.flags |= PARENT;
+    // memcpy(parent.data, left.raw_hash, 32);
+    // memcpy(parent.data+8, right.raw_hash, 32);
+    // parent.compress_chunk();
+    // return parent;
 }
 
 Chunk merge(Chunk &left, Chunk &right);
@@ -272,9 +284,7 @@ Hasher Hasher::new_internal(u32 key[8], u32 flags) {
     };
 }
 
-Hasher Hasher::_new() {
-    return new_internal(IV, 0);
-}
+Hasher Hasher::_new() { return new_internal(IV, 0); }
 
 void Hasher::propagate() {
     int level=0;
@@ -341,6 +351,7 @@ Chunk merge(Chunk &left, Chunk &right) {
     right.compress_chunk();
 
     Chunk parent(left.flags, left.key);
+    parent.flags |= PARENT;
     // 32 bytes need to be copied for all of these
     memcpy(parent.data, left.raw_hash, 32);
     memcpy(parent.data+8, right.raw_hash, 32);
