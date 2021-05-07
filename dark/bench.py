@@ -65,7 +65,7 @@ if sys.argv[2] in {"seq", "all"}:
     print(result)
     end = time.time()
     exec_time = end-start
-    print("\x1b[35m", f"Sequential execution time: {exec_time:.2f}s", "\033[0m")
+    print("\x1b[35m", f"V-omp execution time: {exec_time:.2f}s", "\033[0m")
 
 if sys.argv[2] in {"og", "all"}:
     start = time.time()

@@ -149,7 +149,8 @@ struct Chunk {
         copy(_key, _key+8, key);
         leaf_len = 0;
     }
-    Chunk() : leaf_len(0) {}
+    Chunk() {}
+    // Chunk() : leaf_len(0) {}
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
     __device__ void g_compress_chunk(u32=0);

@@ -1,14 +1,17 @@
 
 #include "blaze3_cpu.cuh"
 
+// Number of threads per thread block
+__constant__ const int NUM_THREADS = 16;
+
 // redefine functions, but for the GPU
 // all of them are the same but with g_ prefixed
-__device__ u32 g_IV[8] = {
+__constant__ const u32 g_IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
 
-__device__ const int g_MSG_PERMUTATION[] = {
+__constant__ const int g_MSG_PERMUTATION[] = {
     2, 6, 3, 10, 7, 0, 4, 13, 
     1, 11, 12, 5, 9, 14, 15, 8
 };
@@ -129,7 +132,8 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
         return;
     }
 
-    u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
+    u32 chaining_value[8];
+    u32 block_len = BLOCK_LEN, flagger;
     g_memcpy(chaining_value, key, 32);
 
     bool empty_input = (leaf_len==0);
@@ -138,6 +142,10 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
             leaf_data[i] = 0U;
         leaf_len = BLOCK_LEN;
     }
+
+    // move all mem allocs outside loop
+    u32 block_words[16];
+    u8 block_cast[BLOCK_LEN];
 
     for(u32 i=0; i<leaf_len; i+=BLOCK_LEN) {
         flagger = flags;
@@ -151,7 +159,7 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
         if(empty_input)
             block_len = 0;
         
-        u32 block_words[16];
+        // clear up block_words
         g_memset(block_words, 0, 16);
 
         u32 new_block_len(block_len);
@@ -159,7 +167,6 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
             new_block_len += 4 - (block_len%4);
         
         // BLOCK_LEN is the max possible length of block_cast
-        u8 block_cast[BLOCK_LEN];
         g_memset(block_cast, 0, new_block_len);
         
         // This memcpy is fine since data is a byte array
@@ -191,7 +198,15 @@ __global__ void h_compute(Chunk *gdata, int N, int jump) {
     tid *= jump;
     if(tid >= N)
         return;
-    gdata[tid].g_compress_chunk();
+
+    // shared memory for compute
+    __shared__ Chunk sdata[NUM_THREADS];
+    // block local thread ID
+    int bl_tid = threadIdx.x;
+
+    sdata[bl_tid] = gdata[tid];
+    sdata[bl_tid].g_compress_chunk();
+    g_memcpy(gdata[tid].raw_hash, sdata[bl_tid].raw_hash, 64);
 }
 
 __global__ void h_move(Chunk *gdata, int N, int jump) {
@@ -216,16 +231,19 @@ void dark_hash(Chunk *data, int N, Chunk *result) {
     // number of threads and number of blocks
     // assume 128 threads per block
     int num_thr, num_blk;
+    const int data_size = N*sizeof(Chunk);
+
+    // cerr << "Dark hashing " << N << " chunks\n";
 
     // Device vector
     Chunk *g_data;
-    cudaMalloc(&g_data, N*sizeof(Chunk));
-    cudaMemcpy(g_data, data, N*sizeof(Chunk), cudaMemcpyHostToDevice);
+    cudaMalloc(&g_data, data_size);
+    cudaMemcpy(g_data, data, data_size, cudaMemcpyHostToDevice);
 
     // i is the number of chunks being hashed by a thread (symbolically)
     // total number of threads = N/i
     for(int i=1; i<N; i<<=1) {
-        num_thr = min(128, N/i);
+        num_thr = min(NUM_THREADS, N/i);
         num_blk = (N/i) / num_thr;
         // compute all hashes
         h_compute<<<num_blk, num_thr>>>(g_data, N, i);
