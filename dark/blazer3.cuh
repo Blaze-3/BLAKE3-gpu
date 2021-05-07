@@ -223,26 +223,14 @@ __global__ void h_move(Chunk *gdata, int N, int jump) {
     g_memcpy(gdata[out].data+8, gdata[rhs].raw_hash, 32);
 }
 
-void dark_hash(thrust::host_vector<Chunk> data, int start, int N, Chunk *result) {
-    // call the kernel, hash in parallel
-    // continue till one element, store it in result
+void dark_hash(Chunk *data, int N, Chunk *result) {    
+    const int data_size = N*sizeof(Chunk);
     
-    // number of threads and number of blocks
-    // assume 128 threads per block
+    Chunk *gdata_ptr;
+    cudaMalloc(&gdata_ptr, data_size);
+    cudaMemcpy(gdata_ptr, data, data_size, cudaMemcpyHostToDevice);
+
     int num_thr, num_blk;
-    // const int data_size = N*sizeof(Chunk);
-
-    // cerr << "Dark hashing " << N << " chunks\n";
-
-    // Device vector
-    thrust::device_vector<Chunk> gdata(N);
-    thrust::copy(begin(data)+start, begin(data)+start+N, begin(gdata));
-    
-    // RAW pointer
-    Chunk *gdata_ptr = thrust::raw_pointer_cast(gdata.data());
-
-    // i is the number of chunks being hashed by a thread (symbolically)
-    // total number of threads = N/i
     for(int i=1; i<N; i<<=1) {
         num_thr = min(NUM_THREADS, N/i);
         num_blk = (N/i) / num_thr;
@@ -254,5 +242,6 @@ void dark_hash(thrust::host_vector<Chunk> data, int start, int N, Chunk *result)
         h_move<<<num_blk, num_thr>>>(gdata_ptr, N, i);
     }
 
-    *result = gdata[0];
+    cudaMemcpy(result, gdata_ptr, sizeof(Chunk), cudaMemcpyDeviceToHost);
+    cudaFree(gdata_ptr);
 }

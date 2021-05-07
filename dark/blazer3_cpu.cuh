@@ -7,6 +7,7 @@ using namespace std;
 // Let's use a pinned memory vector!
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
+#include <thrust/system/cuda/experimental/pinned_allocator.h>
 
 using u32 = unsigned int;
 using u64 = unsigned long long;
@@ -20,10 +21,10 @@ const u32 CHUNK_LEN = 1024;
 // This snicker size means ~8MB of data will be transferred to the GPU
 // every time we get a snicker bar. My GPU's transfer size is 16MB.
 // this is the highest value that does not exceed the transfer size for sure
-const u32 SNICKER = 1U << 13;
+const u32 SNICKER = 1U << 16;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 5;
+const u32 FACTORY_HT = 4;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
@@ -230,10 +231,15 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 }
 
-void dark_hash(thrust::host_vector<Chunk>, int, int, Chunk*);
+using thrust_vector = thrust::host_vector<
+    Chunk,
+    thrust::system::cuda::experimental::pinned_allocator<Chunk>
+>;
+
+void dark_hash(Chunk*, int, Chunk*);
 
 // Sanity checks
-Chunk hash_many(thrust::host_vector<Chunk> data, int first, int last) {
+Chunk hash_many(thrust_vector &data, int first, int last) {
     // n will always be a power of 2
     int n = last-first;
     // Reduce GPU calling overhead
@@ -243,7 +249,7 @@ Chunk hash_many(thrust::host_vector<Chunk> data, int first, int last) {
     }
     
     Chunk ret;
-    dark_hash(data, first, n, &ret);
+    dark_hash(data.data()+first, n, &ret);
     return ret;
 
     // CPU style execution
@@ -266,8 +272,8 @@ struct Hasher {
     u32 flags;
     u64 ctr;
     // Factory is an array of FACTORY_HT possible SNICKER bars
-    thrust::host_vector<Chunk> factory[FACTORY_HT];
-    thrust::host_vector<Chunk> bar;
+    thrust_vector factory[FACTORY_HT];
+    thrust_vector bar;
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags);
@@ -320,7 +326,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
 
     Chunk root(flags, key);
     for(int i=0; i<FACTORY_HT; i++) {
-        thrust::host_vector<Chunk> subtrees;
+        thrust_vector subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
             continue;
