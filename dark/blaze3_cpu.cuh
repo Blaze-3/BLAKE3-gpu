@@ -140,6 +140,7 @@ struct Chunk {
         counter = ctr;
         flags = _flags;
         copy(_key, _key+8, key);
+        memset(leaf_data, 0, 1024);
         copy(begin(input), end(input), begin(leaf_data));
         leaf_len = input.size();
     }

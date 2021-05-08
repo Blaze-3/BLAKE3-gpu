@@ -1,4 +1,3 @@
-
 #include "blaze3_cpu.cuh"
 
 // Number of threads per thread block
@@ -166,13 +165,10 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
         if(block_len%4)
             new_block_len += 4 - (block_len%4);
         
-        // BLOCK_LEN is the max possible length of block_cast
-        g_memset(block_cast, 0, new_block_len);
-        
         // This memcpy is fine since data is a byte array
-        memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
+        memcpy(block_cast, leaf_data+i, new_block_len*sizeof(*block_cast));
         
-        g_words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+        g_words_from_little_endian_bytes(leaf_data+i, block_words, new_block_len);
 
         if(i==0)
             flagger |= CHUNK_START;
@@ -194,7 +190,8 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
 }
 
 __global__ void h_compute(Chunk *gdata, int N, int jump) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int tid = blockDim.x * blockIdx.x + threadIdx.x, tid_copy;
+    tid_copy = tid;
     tid *= jump;
     if(tid >= N)
         return;
@@ -206,22 +203,10 @@ __global__ void h_compute(Chunk *gdata, int N, int jump) {
 
     sdata[bl_tid] = gdata[tid];
     sdata[bl_tid].g_compress_chunk();
-    g_memcpy(gdata[tid].raw_hash, sdata[bl_tid].raw_hash, 64);
-}
 
-__global__ void h_move(Chunk *gdata, int N, int jump) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x;
-    int lhs = (2*tid)*jump, rhs = (2*tid+1)*jump;
-    if(rhs >= N)
-        return;
-
-    // Parent is LHS itself
-    int out = lhs;
-
-    // Key and other flags are already present
-    gdata[out].flags |= PARENT;
-    g_memcpy(gdata[out].data, gdata[lhs].raw_hash, 32);
-    g_memcpy(gdata[out].data+8, gdata[rhs].raw_hash, 32);
+    bool b = (tid_copy&1); // true is right, false is left
+    gdata[tid].flags |= PARENT;
+    g_memcpy(gdata[tid-jump*b].data+8*b, sdata[bl_tid].raw_hash, 32);
 }
 
 void dark_hash(Chunk *data, int N, Chunk *result) {
@@ -246,13 +231,8 @@ void dark_hash(Chunk *data, int N, Chunk *result) {
         num_thr = min(NUM_THREADS, N/i);
         num_blk = (N/i) / num_thr;
         // compute all hashes
+        // and also store results accordingly
         h_compute<<<num_blk, num_thr>>>(g_data, N, i);
-        // cudaDeviceSynchronize();
-        
-        num_thr /= 2;
-        // move hashes to parent nodes
-        h_move<<<num_blk, num_thr>>>(g_data, N, i);
-        // cudaDeviceSynchronize();
     }
 
     cudaMemcpy(result, g_data, sizeof(Chunk), cudaMemcpyDeviceToHost);
