@@ -4,6 +4,7 @@
 *b3sum*
 *perf*
 *.exp
+*.pdb*
 __pycache__/
 
 # Prerequisites

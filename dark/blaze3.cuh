@@ -209,7 +209,7 @@ __global__ void h_compute(Chunk *gdata, int N, int jump) {
     g_memcpy(gdata[tid-jump*b].data+8*b, sdata[bl_tid].raw_hash, 32);
 }
 
-void dark_hash(Chunk *data, int N, Chunk *result) {
+void dark_hash(Chunk *data, int N, Chunk *result, Chunk *memory_bar) {
     // call the kernel, hash in parallel
     // continue till one element, store it in result
     
@@ -221,9 +221,12 @@ void dark_hash(Chunk *data, int N, Chunk *result) {
     // cerr << "Dark hashing " << N << " chunks\n";
 
     // Device vector
-    Chunk *g_data;
-    cudaMalloc(&g_data, data_size);
+    Chunk *g_data = memory_bar;
+    
     cudaMemcpy(g_data, data, data_size, cudaMemcpyHostToDevice);
+
+    // Only for Nsight
+    // cudaDeviceSynchronize();
 
     // i is the number of chunks being hashed by a thread (symbolically)
     // total number of threads = N/i
@@ -235,6 +238,9 @@ void dark_hash(Chunk *data, int N, Chunk *result) {
         h_compute<<<num_blk, num_thr>>>(g_data, N, i);
     }
 
+    // Only for Nsight
+    // cudaDeviceSynchronize();
+
     cudaMemcpy(result, g_data, sizeof(Chunk), cudaMemcpyDeviceToHost);
-    cudaFree(g_data);
+    
 }

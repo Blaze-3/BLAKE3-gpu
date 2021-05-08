@@ -227,10 +227,10 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 }
 
-void dark_hash(Chunk*, int, Chunk*);
+void dark_hash(Chunk*, int, Chunk*, Chunk*);
 
 // Sanity checks
-Chunk hash_many(Chunk *data, int first, int last) {
+Chunk hash_many(Chunk *data, int first, int last, Chunk *memory_bar) {
     // n will always be a power of 2
     int n = last-first;
     // Reduce GPU calling overhead
@@ -240,7 +240,7 @@ Chunk hash_many(Chunk *data, int first, int last) {
     }
     
     Chunk ret;
-    dark_hash(data+first, n, &ret);
+    dark_hash(data+first, n, &ret, memory_bar);
     return ret;
 
     // CPU style execution
@@ -262,37 +262,58 @@ struct Hasher {
     u32 key[8];
     u32 flags;
     u64 ctr;
+    u64 file_size;
+    // A memory bar for CUDA to use during it's computation
+    Chunk* memory_bar;
     // Factory is an array of FACTORY_HT possible SNICKER bars
     vector<Chunk> factory[FACTORY_HT];
     vector<Chunk> bar;
 
     // methods
-    static Hasher new_internal(u32 key[8], u32 flags);
-    static Hasher _new();
+    static Hasher new_internal(u32 key[8], u32 flags, u64 fsize);
+    static Hasher _new(u64);
+    // initializes cuda memory (if needed)
+    void init();
+    // frees cuda memory (if it is there)
+    // free nullptr is a no-op
+    ~Hasher() { memory_bar ? cudaFree(memory_bar) : free(memory_bar) ;}
 
     void update(vector<u8> &input);
     void finalize(vector<u8> &out_slice);
     void propagate();
 };
 
-Hasher Hasher::new_internal(u32 key[8], u32 flags) {
+Hasher Hasher::new_internal(u32 key[8], u32 flags, u64 fsize) {
     return Hasher{
         {
             key[0], key[1], key[2], key[3],
             key[4], key[5], key[6], key[7]
         },
         flags,
-        0   // counter
+        0,   // counter
+        fsize
     };
 }
 
-Hasher Hasher::_new() { return new_internal(IV, 0); }
+Hasher Hasher::_new(u64 fsize) { return new_internal(IV, 0, fsize); }
+
+void Hasher::init() {
+    if(file_size<1) {
+        memory_bar = nullptr;
+        return;
+    }
+    u64 num_chunks = ceil(file_size / CHUNK_LEN);
+    u32 bar_size = min(num_chunks, (u64)SNICKER);
+    // Just for safety :)
+    ++bar_size;
+    cudaMalloc(&memory_bar, bar_size*sizeof(Chunk));
+}
 
 void Hasher::propagate() {
     int level=0;
     // nodes move to upper levels if lower one is one SNICKER long
     while(factory[level].size() == SNICKER) {
-        Chunk subtree = hash_many(factory[level].data(), 0, SNICKER);
+        Chunk subtree = hash_many(factory[level].data(), 0, SNICKER, memory_bar);
         factory[level].clear();
         ++level;
         factory[level].push_back(subtree);
@@ -322,7 +343,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
         int start = 0;
         while(divider) {
             if(n&divider) {
-                Chunk subtree = hash_many(factory[i].data(), start, start+divider);
+                Chunk subtree = hash_many(factory[i].data(), start, start+divider, memory_bar);
                 subtrees.push_back(subtree);
                 start += divider;
             }

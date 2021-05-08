@@ -1,6 +1,7 @@
 #include "blaze3.cuh"
 #include <fstream>
 #include <iomanip>
+#include <filesystem>
 
 // Do not change this, it has to be equal to chunk size
 #define BUFFER_LEN CHUNK_LEN
@@ -11,13 +12,18 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    Hasher hasher = Hasher::_new();
-
     ifstream file(argv[1], ios::binary);
     if(file.fail()) {
         cout << "Could not read file " << argv[1] << endl;
         return 1;
     }
+
+    filesystem::path fyle{argv[1]};
+    u64 file_size = filesystem::file_size(fyle);
+
+    Hasher hasher = Hasher::_new(file_size);
+    // this must always be there
+    hasher.init();
 
     char buffer[BUFFER_LEN] = {0};
     file.read(buffer, BUFFER_LEN);
