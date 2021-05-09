@@ -4,6 +4,10 @@
 #include <vector>
 using namespace std;
 
+// Let's use a pinned memory vector!
+#include <thrust/host_vector.h>
+#include <thrust/system/cuda/experimental/pinned_allocator.h>
+
 using u32 = unsigned int;
 using u64 = unsigned long long;
 using u8  = unsigned char;
@@ -227,6 +231,12 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 }
 
+using thrust_vector = thrust::host_vector<
+    Chunk,
+    thrust::system::cuda::experimental::pinned_allocator<Chunk>
+>;
+
+// The GPU hasher
 void dark_hash(Chunk*, int, Chunk*, Chunk*);
 
 // Sanity checks
@@ -266,8 +276,8 @@ struct Hasher {
     // A memory bar for CUDA to use during it's computation
     Chunk* memory_bar;
     // Factory is an array of FACTORY_HT possible SNICKER bars
-    vector<Chunk> factory[FACTORY_HT];
-    vector<Chunk> bar;
+    thrust_vector factory[FACTORY_HT];
+    thrust_vector bar;
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags, u64 fsize);
@@ -307,6 +317,13 @@ void Hasher::init() {
     // Just for safety :)
     ++bar_size;
     cudaMalloc(&memory_bar, bar_size*sizeof(Chunk));
+
+    // Let the most commonly used places always have memory
+    // +1 so that it does not resize when it hits CHUNK_LEN
+    u32 RESERVE = CHUNK_LEN + 1;
+    bar.reserve(RESERVE);
+    factory[0].reserve(RESERVE);
+    factory[1].reserve(RESERVE);
 }
 
 void Hasher::propagate() {
@@ -321,10 +338,11 @@ void Hasher::propagate() {
 } 
 
 void Hasher::update(vector<u8> &input) {
-    bar.emplace_back(input, flags, key, ctr);
+    bar.push_back(Chunk(input, flags, key, ctr));
     ++ctr;
     if(bar.size() == SNICKER) {
-        copy(begin(bar), end(bar), back_inserter(factory[0]));
+        thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
+        // copy(begin(bar), end(bar), back_inserter(factory[0]));
         bar.clear();
         propagate();
     }
@@ -332,7 +350,8 @@ void Hasher::update(vector<u8> &input) {
 
 void Hasher::finalize(vector<u8> &out_slice) {
     // Look at openmp or cuda for explanation
-    copy(begin(bar), end(bar), back_inserter(factory[0]));
+    thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
+    // copy(begin(bar), end(bar), back_inserter(factory[0]));
 
     Chunk root(flags, key);
     for(int i=0; i<FACTORY_HT; i++) {
