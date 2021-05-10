@@ -144,6 +144,7 @@ struct Chunk {
         counter = ctr;
         flags = _flags;
         copy(_key, _key+8, key);
+        memset(leaf_data, 0, 1024);
         copy(begin(input), end(input), begin(leaf_data));
         leaf_len = input.size();
     }
@@ -198,15 +199,8 @@ void Chunk::compress_chunk(u32 out_flags) {
         u32 new_block_len(block_len);
         if(block_len%4)
             new_block_len += 4 - (block_len%4);
-        
-        // BLOCK_LEN is the max possible length of block_cast
-        u8 block_cast[BLOCK_LEN];
-        // TODO: Convert to cudaMemset
-        memset(block_cast, 0, new_block_len*sizeof(*block_cast));
-        // TODO: convert to cudaMemcpy
-        memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
-        
-        words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+
+        words_from_little_endian_bytes(leaf_data+i, block_words, new_block_len);
 
         if(i==0)
             flagger |= CHUNK_START;
@@ -223,7 +217,6 @@ void Chunk::compress_chunk(u32 out_flags) {
             raw_hash
         );
 
-        // TODO: convert to cudaMemcpy
         copy(raw_hash, raw_hash+8, chaining_value);
     }
 }
@@ -236,9 +229,8 @@ struct Hasher {
     u32 key[8];
     u32 flags;
     u64 ctr;
-    // Factory is an array of FACTORY_HT possible SNICKER bars
+    // Factory of FACTORY_HT possible SNICKER bars
     vector<Chunk> factory[FACTORY_HT];
-    vector<Chunk> bar;
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags);
@@ -267,10 +259,12 @@ void propagate(Hasher *h) {
     int level=0;
     while(h->factory[level].size() == SNICKER) {
         // nodes move to upper levels if lower one is one SNICKER long
-        Chunk subtree = hash_many(h->factory[level], 0, h->factory[level].size());
+        Chunk subtree = hash_many(
+            h->factory[level], 0, h->factory[level].size()
+        );
         h->factory[level].clear();
         ++level;
-        h->factory[level].push_back(subtree);
+        h->factory[level].emplace_back(subtree);
     }
     #if IS_ASYNC
     factory_lock.unlock();
@@ -278,11 +272,9 @@ void propagate(Hasher *h) {
 } 
 
 void Hasher::update(vector<u8> &input) {
-    bar.emplace_back(input, flags, key, ctr);
+    factory[0].emplace_back(input, flags, key, ctr);
     ++ctr;
-    if(bar.size() == SNICKER) {
-        copy(begin(bar), end(bar), back_inserter(factory[0]));
-        bar.clear();
+    if(factory[0].size() == SNICKER) {
         // Let this run in the background
         // Async version slows down execution by 2x
         #if IS_ASYNC
@@ -304,10 +296,9 @@ void Hasher::finalize(vector<u8> &out_slice) {
     #if IS_ASYNC
     factory_lock.lock();
     #endif
-    copy(begin(bar), end(bar), back_inserter(factory[0]));
 
     Chunk root(flags, key);
-    for(int i=0; i<FACTORY_HT; i++) {
+    for(u32 i=0; i<FACTORY_HT; i++) {
         vector<Chunk> subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
@@ -316,7 +307,9 @@ void Hasher::finalize(vector<u8> &out_slice) {
         while(divider) {
             if(n&divider) {
                 // cout << "hashing " << divider << " at level " << i << endl;
-                subtrees.push_back(hash_many(factory[i], start, start+divider));
+                subtrees.emplace_back(
+                    hash_many(factory[i], start, start+divider)
+                );
                 start += divider;
             }
             divider >>= 1;
@@ -391,7 +384,7 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
     // it needs to be hashed with the root flag
     u64 output_block_counter = 0;
     u64 i=0, k=2*OUT_LEN;
-    auto osb = begin(out_slice);
+    
     u32 words[16] = {};
     for(; int(out_slice.size()-i)>0; i+=k) {
         node.counter = output_block_counter;

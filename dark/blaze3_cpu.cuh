@@ -320,7 +320,7 @@ void Hasher::init() {
 
     // Let the most commonly used places always have memory
     // +1 so that it does not resize when it hits CHUNK_LEN
-    u32 RESERVE = CHUNK_LEN + 1;
+    u32 RESERVE = SNICKER + 1;
     bar.reserve(RESERVE);
     factory[0].reserve(RESERVE);
     factory[1].reserve(RESERVE);

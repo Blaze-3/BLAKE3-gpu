@@ -222,7 +222,6 @@ void dark_hash(Chunk *data, int N, Chunk *result, Chunk *memory_bar) {
 
     // Device vector
     Chunk *g_data = memory_bar;
-    
     cudaMemcpy(g_data, data, data_size, cudaMemcpyHostToDevice);
 
     // Only for Nsight
@@ -242,5 +241,4 @@ void dark_hash(Chunk *data, int N, Chunk *result, Chunk *memory_bar) {
     // cudaDeviceSynchronize();
 
     cudaMemcpy(result, g_data, sizeof(Chunk), cudaMemcpyDeviceToHost);
-    
 }
