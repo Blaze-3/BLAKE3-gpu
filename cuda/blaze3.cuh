@@ -154,7 +154,7 @@ struct Chunk {
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
 };
-
+__global__ void d_compress(u32 out_flags)
 void Chunk::compress_chunk(u32 out_flags) {
     // cout << "Compress called\n";
     if(flags&PARENT) {
@@ -347,6 +347,35 @@ void Hasher::finalize(vector<u8> &out_slice) {
     }
     hash_root(root, out_slice);
 }
+__global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent ){
+    int n= last-first;
+    if(n==1){
+        d_data[first].compress_chunk();
+        memcpy(d_parent,d_data+first, sizeof(*d_parent));
+        return;
+    }
+
+    Chunk *left;
+    cudaMalloc(&left,sizeof(Chunk));
+    Chunk *right;
+    cudaMalloc(&right,sizeof(Chunk));
+
+    cudaStream_t s1, s2;
+    
+    cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    d_hashmany<<<1,1,1,s1 >>>(d_data, first, first+n/2, left);
+
+    cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    d_hashmany<<<1,1,1,s2 >>>(d_data, first+n/2, last, right);
+
+    d_parent->flags = left->flags | PARENT;
+    memcpy(d_parent->key, left->key, 32);
+    memcpy(d_parent->data, left->raw_hash, 32);
+    memcpy(d_parent->data+8, right->raw_hash, 32);
+    d_parent->compress_chunk();
+
+}
+
 
 // A divide and conquer approach
 void hash_many(Chunk *data, int first, int last, Chunk *parent) {
@@ -406,29 +435,18 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     //pointers for device
     Chunk *d_data;
     Chunk *d_parent;
-    int d_first;
-    int d_last;
+
     //allocate on device
-    CudaMalloc(&d_data,sizeof(Chunk));
-    CudaMalloc(&d_parent,sizeof(Chunk));
-    CudaMalloc(&d_first,sizeof(int));
-    CudaMalloc(&d_last,sizeof(int));
+    cudaMalloc(&d_data,sizeof(Chunk)*(last-first));
+    cudaMalloc(&d_parent,sizeof(Chunk));
+    
     //populate on device
-    cudaMemcpy(d_data,data,sizeof(data),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyHostToDevice);
     cudaMemcpy(d_parent,parent,sizeof(parent),cudaMemcpyHostToDevice);
-    cudaMemcpy(d_first,&first,sizeof(int),cudaMemcpyHostToDevice);
-    cudaMemcpy(d_last,&last,sizeof(int),cudaMemcpyHostToDevice);
+    
     //call hashmany
+    d_hashmany<<<1,1>>>(d_data,first,last,d_parent);
 
-
-}
-
-__global__ d_hashmany(Chunk d_data, int d_first, int d_last, Chunk d_parent){
-    int n = last-first;
-    if(n==1){
-        //data[first].compress_chunk();
-
-    }
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
