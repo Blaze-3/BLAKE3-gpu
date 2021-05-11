@@ -8,9 +8,9 @@ using namespace std;
 #include <thrust/host_vector.h>
 #include <thrust/system/cuda/experimental/pinned_allocator.h>
 
-using u32 = unsigned int;
-using u64 = unsigned long long;
-using u8  = unsigned char;
+using u32 = uint32_t;
+using u64 = uint64_t;
+using u8  = uint8_t;
  
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
@@ -88,15 +88,15 @@ void compress(
     u32 flags,
     u32 *state
 ) {
-    copy(chaining_value, chaining_value+8, state);
-    copy(IV, IV+4, state+8);
+    memcpy(state, chaining_value, 8*sizeof(*state));
+    memcpy(state+8, IV, 4*sizeof(*state));
     state[12] = (u32)counter;
     state[13] = (u32)(counter >> 32);
     state[14] = block_len;
     state[15] = flags;
 
     u32 block[16];
-    copy(block_words, block_words+16, block);
+    memcpy(block, block_words, 16*sizeof(*block));
     
     round(state, block); // round 1
     permute(block);
@@ -140,18 +140,18 @@ struct Chunk {
     // only useful for leaf nodes
     u64 counter;
     // Constructor for leaf nodes
-    Chunk(vector<u8> &input, u32 _flags, u32 *_key, u64 ctr){
+    Chunk(char *input, int size, u32 _flags, u32 *_key, u64 ctr){
         counter = ctr;
         flags = _flags;
-        copy(_key, _key+8, key);
+        memcpy(key, _key, 8*sizeof(*key));
         memset(leaf_data, 0, 1024);
-        copy(begin(input), end(input), begin(leaf_data));
-        leaf_len = input.size();
+        memcpy(leaf_data, input, size);
+        leaf_len = size;
     }
     Chunk(u32 _flags, u32 *_key) {
         counter = 0;
         flags = _flags;
-        copy(_key, _key+8, key);
+        memcpy(key, _key, 8*sizeof(*key));
         leaf_len = 0;
     }
     Chunk() {}
@@ -175,7 +175,7 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 
     u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
-    copy(key, key+8, chaining_value);
+    memcpy(chaining_value, key, 8*sizeof(*chaining_value));
 
     bool empty_input = (leaf_len==0);
     if(empty_input) {
@@ -204,9 +204,7 @@ void Chunk::compress_chunk(u32 out_flags) {
         
         // BLOCK_LEN is the max possible length of block_cast
         u8 block_cast[BLOCK_LEN];
-        // TODO: Convert to cudaMemset
         memset(block_cast, 0, new_block_len*sizeof(*block_cast));
-        // TODO: convert to cudaMemcpy
         memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
         
         words_from_little_endian_bytes(block_cast, block_words, new_block_len);
@@ -226,8 +224,7 @@ void Chunk::compress_chunk(u32 out_flags) {
             raw_hash
         );
 
-        // TODO: convert to cudaMemcpy
-        memcpy(chaining_value, raw_hash, 32);
+        memcpy(chaining_value, raw_hash, 8*sizeof(*chaining_value));
     }
 }
 
@@ -277,7 +274,6 @@ struct Hasher {
     Chunk* memory_bar;
     // Factory is an array of FACTORY_HT possible SNICKER bars
     thrust_vector factory[FACTORY_HT];
-    thrust_vector bar;
 
     // methods
     static Hasher new_internal(u32 key[8], u32 flags, u64 fsize);
@@ -288,7 +284,7 @@ struct Hasher {
     // free nullptr is a no-op
     ~Hasher() { memory_bar ? cudaFree(memory_bar) : free(memory_bar) ;}
 
-    void update(vector<u8> &input);
+    void update(char *input, int size);
     void finalize(vector<u8> &out_slice);
     void propagate();
 };
@@ -321,7 +317,6 @@ void Hasher::init() {
     // Let the most commonly used places always have memory
     // +1 so that it does not resize when it hits CHUNK_LEN
     u32 RESERVE = SNICKER + 1;
-    bar.reserve(RESERVE);
     factory[0].reserve(RESERVE);
     factory[1].reserve(RESERVE);
 }
@@ -337,22 +332,14 @@ void Hasher::propagate() {
     }
 } 
 
-void Hasher::update(vector<u8> &input) {
-    bar.push_back(Chunk(input, flags, key, ctr));
+void Hasher::update(char *input, int size) {
+    factory[0].push_back(Chunk(input, size, flags, key, ctr));
     ++ctr;
-    if(bar.size() == SNICKER) {
-        thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
-        // copy(begin(bar), end(bar), back_inserter(factory[0]));
-        bar.clear();
+    if(factory[0].size() == SNICKER)
         propagate();
-    }
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
-    // Look at openmp or cuda for explanation
-    thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
-    // copy(begin(bar), end(bar), back_inserter(factory[0]));
-
     Chunk root(flags, key);
     for(int i=0; i<FACTORY_HT; i++) {
         vector<Chunk> subtrees;
@@ -412,7 +399,7 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
         node.compress_chunk(ROOT);
         
         // words is u32[16]
-        copy(node.raw_hash, node.raw_hash+16, words);
+        memcpy(words, node.raw_hash, 16*sizeof(*words));
         
         vector<u8> out_block(min(k, (u64)out_slice.size()-i));
         for(u32 l=0; l<out_block.size(); l+=4) {
