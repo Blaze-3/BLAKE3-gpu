@@ -22,6 +22,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Not really helpful since we're not using cin
+    // ios_base::sync_with_stdio(false);
+    // cin.tie(NULL);
+
     // open-mp settings
     #if defined(_OPENMP)
     // regions should execute with two threads
@@ -33,8 +37,7 @@ int main(int argc, char *argv[]) {
     char buffer[BUFFER_LEN] = {0};
     file.read(buffer, BUFFER_LEN);
     while(file.gcount()) {
-        vector<u8> store(buffer, buffer+file.gcount());
-        hasher.update(store);
+        hasher.update(buffer, file.gcount());
         file.read(buffer, BUFFER_LEN);
     }
 

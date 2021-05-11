@@ -6,9 +6,9 @@
 #include <mutex>
 using namespace std;
 
-using u32 = unsigned int;
-using u64 = unsigned long long;
-using u8  = unsigned char;
+using u32 = uint32_t;
+using u64 = uint64_t;
+using u8  = uint8_t;
  
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
@@ -32,6 +32,12 @@ const int usize = sizeof(u32) * 8;
 mutex factory_lock;
 const int IS_ASYNC = 0;
 
+#include <iomanip>
+void disp_state(u32 state[16]) {
+    for(int i=0; i<16; i++)
+        cerr << hex << setfill('0') << setw(8) << state[i] << "\n";
+}
+
 u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
@@ -46,7 +52,7 @@ u32 rotr(u32 value, int shift) {
     return (value >> shift)|(value << (usize - shift));
 }
 
-void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[a] = state[a] + state[b] + mx;
     state[d] = rotr((state[d] ^ state[a]), 16);
     state[c] = state[c] + state[d];
@@ -65,6 +71,8 @@ void round(u32 state[16], u32 m[16]) {
     g(state, 1, 5, 9, 13, m[2], m[3]);
     g(state, 2, 6, 10, 14, m[4], m[5]);
     g(state, 3, 7, 11, 15, m[6], m[7]);
+    // cerr << "After column mixing:\n";
+    // disp_state(state);
     // Mix the diagonals.
     g(state, 0, 5, 10, 15, m[8], m[9]);
     g(state, 1, 6, 11, 12, m[10], m[11]);
@@ -88,17 +96,21 @@ void compress(
     u32 flags,
     u32 state[16]
 ) {
-    copy(chaining_value, chaining_value+8, state);
-    copy(IV, IV+4, state+8);
+    memcpy(state, chaining_value, 8*sizeof(*state));
+    memcpy(state+8, IV, 4*sizeof(*state));
     state[12] = (u32)counter;
     state[13] = (u32)(counter >> 32);
     state[14] = block_len;
     state[15] = flags;
 
     u32 block[16];
-    copy(block_words, block_words+16, block);
+    memcpy(block, block_words, 16*sizeof(*block));
     
+    // cerr << "ORIGINAL:\n";
+    // disp_state(state);
+    // cerr << endl;
     round(state, block); // round 1
+    // exit(0);
     permute(block);
     round(state, block); // round 2
     permute(block);
@@ -140,18 +152,18 @@ struct Chunk {
     // only useful for leaf nodes
     u64 counter;
     // Constructor for leaf nodes
-    Chunk(vector<u8> &input, u32 _flags, u32 *_key, u64 ctr){
+    Chunk(char *input, int size, u32 _flags, u32 *_key, u64 ctr){
         counter = ctr;
         flags = _flags;
-        copy(_key, _key+8, key);
+        memcpy(key, _key, 8*sizeof(*key));
         memset(leaf_data, 0, 1024);
-        copy(begin(input), end(input), begin(leaf_data));
-        leaf_len = input.size();
+        memcpy(leaf_data, input, size);
+        leaf_len = size;
     }
     Chunk(u32 _flags, u32 *_key) {
         counter = 0;
         flags = _flags;
-        copy(_key, _key+8, key);
+        memcpy(key, _key, 8*sizeof(*key));
         leaf_len = 0;
     }
     Chunk() : leaf_len(0) {}
@@ -173,7 +185,7 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 
     u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
-    copy(key, key+8, chaining_value);
+    memcpy(chaining_value, key, 8*sizeof(*chaining_value));
 
     bool empty_input = (leaf_len==0);
     if(empty_input) {
@@ -217,7 +229,7 @@ void Chunk::compress_chunk(u32 out_flags) {
             raw_hash
         );
 
-        copy(raw_hash, raw_hash+8, chaining_value);
+        memcpy(chaining_value, raw_hash, 8*sizeof(*chaining_value));
     }
 }
 
@@ -236,7 +248,7 @@ struct Hasher {
     static Hasher new_internal(u32 key[8], u32 flags);
     static Hasher _new();
 
-    void update(vector<u8> &input);
+    void update(char *input, int size);
     void finalize(vector<u8> &out_slice);
 };
 
@@ -271,8 +283,8 @@ void propagate(Hasher *h) {
     #endif
 } 
 
-void Hasher::update(vector<u8> &input) {
-    factory[0].emplace_back(input, flags, key, ctr);
+void Hasher::update(char *input, int size) {
+    factory[0].emplace_back(input, size, flags, key, ctr);
     ++ctr;
     if(factory[0].size() == SNICKER) {
         // Let this run in the background
@@ -391,7 +403,7 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
         node.compress_chunk(ROOT);
         
         // words is u32[16]
-        copy(node.raw_hash, node.raw_hash+16, words);
+        memcpy(words, node.raw_hash, 16*sizeof(*words));
         
         vector<u8> out_block(min(k, (u64)out_slice.size()-i));
         for(u32 l=0; l<out_block.size(); l+=4) {
