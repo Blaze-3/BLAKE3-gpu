@@ -24,10 +24,10 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 7;
+const u32 SNICKER = 1U << 6;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 8;
+const u32 FACTORY_HT = 5;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;

@@ -10,8 +10,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    cout << "Blake hasher in cpp\n";
-    cout << "32 byte hash outputs used here.\n";
+    // cout << "Blake hasher in cpp\n";
+    // cout << "32 byte hash outputs used here.\n";
     Hasher hasher = Hasher::_new();
 
     ifstream file(argv[1], ios::binary);
@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     //     cout << (int)e << " ";
     // cout << endl;
 
-    cout << "Hex hash is: \n";
+    // cout << "Hex hash is: \n";
     for(auto e: hash_output)
         cout << hex << setfill('0') << setw(2) << (int)e;
     cout << endl;
