@@ -6,9 +6,18 @@
 #include <mutex>
 using namespace std;
 
+#if defined(_OPENMP)
+// 4 lane (i.e. kit-kat) style speed up only when OMP used
+// for no other reason than removing all parallelism from serial version
+#include "_avx2_choco.h"
+#endif
+
+#ifndef _AVX2_CHOCO_H
+// these types are already defined there
 using u32 = uint32_t;
 using u64 = uint64_t;
 using u8  = uint8_t;
+#endif
  
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
@@ -65,20 +74,21 @@ void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[b] = rotr((state[b] ^ state[c]), 7);
 }
 
+#ifndef _AVX2_CHOCO_H
+// AVX2 has a specialized version for this
 void round(u32 state[16], u32 m[16]) {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
     g(state, 1, 5, 9, 13, m[2], m[3]);
     g(state, 2, 6, 10, 14, m[4], m[5]);
     g(state, 3, 7, 11, 15, m[6], m[7]);
-    // cerr << "After column mixing:\n";
-    // disp_state(state);
     // Mix the diagonals.
     g(state, 0, 5, 10, 15, m[8], m[9]);
     g(state, 1, 6, 11, 12, m[10], m[11]);
     g(state, 2, 7, 8, 13, m[12], m[13]);
     g(state, 3, 4, 9, 14, m[14], m[15]);
 }
+#endif
 
 void permute(u32 m[16]) {
     u32 permuted[16];
@@ -106,11 +116,7 @@ void compress(
     u32 block[16];
     memcpy(block, block_words, 16*sizeof(*block));
     
-    // cerr << "ORIGINAL:\n";
-    // disp_state(state);
-    // cerr << endl;
     round(state, block); // round 1
-    // exit(0);
     permute(block);
     round(state, block); // round 2
     permute(block);

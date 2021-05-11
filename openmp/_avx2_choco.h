@@ -1,41 +1,23 @@
-// Basic building blocks of blaze3
+#ifndef _AVX2_CHOCO_H
+#define _AVX2_CHOCO_H
+
 #include <iostream>
-
-#include <immintrin.h>
-// using namespace std;
-
 using u32 = uint32_t;
 using u64 = uint64_t;
 using u8  = uint8_t;
- 
-const int usize = sizeof(u32) * 8;
 
-// u32 rotr(u32 value, int shift) {
-//     return (value >> shift)|(value << (usize - shift));
-// }
+#include <immintrin.h>
 
-__m128i _avx2_rotr(__m128i a, int shift) {
-    int lshift = usize-shift;
+inline __m128i _avx2_rotr(__m128i a, int shift) {
+    // lshift = usize-shift
+    // but usize is always 32
+    int lshift = 32-shift;
     int rshift = shift;
-    __m128i l = _mm_slli_epi32(a, lshift);
-    __m128i r = _mm_srli_epi32(a, rshift);
-    return _mm_or_si128(l, r);
+    return _mm_or_si128(
+        _mm_slli_epi32(a, lshift),
+        _mm_srli_epi32(a, rshift)
+    );
 }
-
-void _avx2_g1(u32 state[16], const u32 m[16]);
-
-// void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
-//     state[a] = state[a] + state[b] + mx;
-//     state[d] = rotr((state[d] ^ state[a]), 16);
-//     state[c] = state[c] + state[d];
-
-//     state[b] = rotr((state[b] ^ state[c]), 12);
-//     state[a] = state[a] + state[b] + my;
-//     state[d] = rotr((state[d] ^ state[a]), 8);
-
-//     state[c] = state[c] + state[d];
-//     state[b] = rotr((state[b] ^ state[c]), 7);
-// }
 
 void _avx2_g0(u32 state[16], const u32 m[16]) {
     __m128i mxx = _mm_set_epi32(m[0], m[2], m[4], m[6]);
@@ -63,27 +45,25 @@ void _avx2_g0(u32 state[16], const u32 m[16]) {
     statex[1] = _mm_xor_si128(statex[1], statex[2]);
     statex[1] = _avx2_rotr(statex[1], 7);
 
-    for(int i=3, k=0; i>=0; i++) {
-        state[k++] = _mm_extract_epi32(statex[i], 0);
-        state[k++] = _mm_extract_epi32(statex[i], 1);
-        state[k++] = _mm_extract_epi32(statex[i], 2);
-        state[k++] = _mm_extract_epi32(statex[i], 3);
-    }
-}
+    state[15] = _mm_extract_epi32(statex[3], 0);
+    state[14] = _mm_extract_epi32(statex[3], 1);
+    state[13] = _mm_extract_epi32(statex[3], 2);
+    state[12] = _mm_extract_epi32(statex[3], 3);
 
-void round(u32 state[16], const u32 m[16]) {
-    // Mix the columns.
-    _avx2_g0(state, m);
-    // g(state, 0, 4,  8, 12, m[0], m[1]);
-    // g(state, 1, 5,  9, 13, m[2], m[3]);
-    // g(state, 2, 6, 10, 14, m[4], m[5]);
-    // g(state, 3, 7, 11, 15, m[6], m[7]);
-    // Mix the diagonals.
-    // _avx2_g1(state, m);
-    // g(state, 0, 5, 10, 15, m[8],  m[9]);
-    // g(state, 1, 6, 11, 12, m[10], m[11]);
-    // g(state, 2, 7,  8, 13, m[12], m[13]);
-    // g(state, 3, 4,  9, 14, m[14], m[15]);
+    state[11] = _mm_extract_epi32(statex[2], 0);
+    state[10] = _mm_extract_epi32(statex[2], 1);
+    state[9]  = _mm_extract_epi32(statex[2], 2);
+    state[8]  = _mm_extract_epi32(statex[2], 3);
+
+    state[7] = _mm_extract_epi32(statex[1], 0);
+    state[6] = _mm_extract_epi32(statex[1], 1);
+    state[5] = _mm_extract_epi32(statex[1], 2);
+    state[4] = _mm_extract_epi32(statex[1], 3);
+
+    state[3] = _mm_extract_epi32(statex[0], 0);
+    state[2] = _mm_extract_epi32(statex[0], 1);
+    state[1] = _mm_extract_epi32(statex[0], 2);
+    state[0] = _mm_extract_epi32(statex[0], 3);
 }
 
 void _avx2_g1(u32 state[16], const u32 m[16]) {
@@ -112,10 +92,31 @@ void _avx2_g1(u32 state[16], const u32 m[16]) {
     statex[1] = _mm_xor_si128(statex[1], statex[2]);
     statex[1] = _avx2_rotr(statex[1], 7);
 
-    for(int i=3, k=0; i>=0; i++) {
-        state[k++] = _mm_extract_epi32(statex[i], 0);
-        state[k++] = _mm_extract_epi32(statex[i], 1);
-        state[k++] = _mm_extract_epi32(statex[i], 2);
-        state[k++] = _mm_extract_epi32(statex[i], 3);
-    }
+    state[3] = _mm_extract_epi32(statex[0], 0);
+    state[2] = _mm_extract_epi32(statex[0], 1);
+    state[1] = _mm_extract_epi32(statex[0], 2);
+    state[0] = _mm_extract_epi32(statex[0], 3);
+
+    state[4] = _mm_extract_epi32(statex[1], 0);
+    state[7] = _mm_extract_epi32(statex[1], 1);
+    state[6] = _mm_extract_epi32(statex[1], 2);
+    state[5] = _mm_extract_epi32(statex[1], 3);
+
+    state[9]  = _mm_extract_epi32(statex[2], 0);
+    state[8]  = _mm_extract_epi32(statex[2], 1);
+    state[11] = _mm_extract_epi32(statex[2], 2);
+    state[10] = _mm_extract_epi32(statex[2], 3);
+
+    state[14] = _mm_extract_epi32(statex[3], 0);
+    state[13] = _mm_extract_epi32(statex[3], 1);
+    state[12] = _mm_extract_epi32(statex[3], 2);
+    state[15] = _mm_extract_epi32(statex[3], 3);
 }
+
+void round(u32 state[16], const u32 m[16]) {
+    // Mix the columns.
+    _avx2_g0(state, m);
+    // Mix the diagonals.
+    _avx2_g1(state, m);
+}
+#endif
