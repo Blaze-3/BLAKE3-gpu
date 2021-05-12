@@ -154,8 +154,33 @@ struct Chunk {
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
 };
-__global__ void d_compress(u32 out_flags)
-void Chunk::compress_chunk(u32 out_flags) {
+__global__ void d_compress(u32 out_flags, Chunk *to_compress){
+    if((to_compress->flags)&PARENT){
+        d_compress<<<1,1>>>(
+            to_compress->key,
+            to_compress->data,
+            0,
+            BLOCK_LEN,
+            (to_compress->flags)|out_flags,
+            to_compress->raw_hash
+        );
+    }
+    else{
+        u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
+        memcpy(to_compress->key,(to_compress->key)+8,chaining_value);
+        bool empty_input = ((to_compress->leaf_len)==0);
+        if (empty_input){
+            for(u32 i=0; i<BLOCK_LEN; i++){
+                (to_compress->leaf_data)[i]=0U;
+            }
+        }
+        for(u32 i=0; i< (to_compress->leaf_len); i+=BLOCK_LEN){
+            flagger=to_compress->flags;
+            
+        }
+    }
+}
+__device__ void Chunk::compress_chunk(u32 out_flags) {
     // cout << "Compress called\n";
     if(flags&PARENT) {
         compress(
@@ -423,15 +448,6 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     //copy all the data
     
     // call a kernel 
-    int n = last-first;
-    if(n == 1) {
-        data[first].compress_chunk();
-        // move all elements to parent
-
-        // TODO: convert to cudaMemcpy
-        memcpy(parent, data+first, sizeof(*parent));
-        return;
-    }
     //pointers for device
     Chunk *d_data;
     Chunk *d_parent;
