@@ -8,7 +8,7 @@ using namespace std;
 
 #if defined(_OPENMP)
 // 4 lane (i.e. kit-kat) style speed up only when OMP used
-// for no other reason than removing all parallelism from serial version
+// for no reason other than removing all parallelism from serial version
 #include "_avx2_choco.h"
 #endif
 
@@ -24,24 +24,22 @@ const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 10;
+const u32 SNICKER = 1U << 9;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 5;
+const u32 FACTORY_HT = 6;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
 const u32 PARENT = 1 << 2;
 const u32 ROOT = 1 << 3;
 const u32 KEYED_HASH = 1 << 4;
-const u32 DERIVE_KEY_CONTEXT = 1 << 5;
-const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
 mutex factory_lock;
 const int IS_ASYNC = 0;
 
-u32 IV[8] = {
+const u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
@@ -68,8 +66,6 @@ void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[b] = rotr((state[b] ^ state[c]), 7);
 }
 
-#ifndef _AVX2_CHOCO_H
-// AVX2 has a specialized version for this
 void round(u32 state[16], u32 m[16]) {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
@@ -82,7 +78,6 @@ void round(u32 state[16], u32 m[16]) {
     g(state, 2, 7, 8, 13, m[12], m[13]);
     g(state, 3, 4, 9, 14, m[14], m[15]);
 }
-#endif
 
 void permute(u32 m[16]) {
     u32 permuted[16];
@@ -92,6 +87,8 @@ void permute(u32 m[16]) {
         m[i] = permuted[i];
 }
 
+#ifndef _AVX2_CHOCO_H
+// AVX2 has a specialized version for this
 void compress(
     u32 chaining_value[8],
     u32 block_words[16],
@@ -106,6 +103,8 @@ void compress(
     state[13] = (u32)(counter >> 32);
     state[14] = block_len;
     state[15] = flags;
+
+    cerr << "Whaaaaaaaaaaaat\n";
 
     u32 block[16];
     memcpy(block, block_words, 16*sizeof(*block));
@@ -129,6 +128,7 @@ void compress(
         state[i + 8] ^= chaining_value[i];
     }
 }
+#endif
 
 void words_from_little_endian_bytes(u8 *bytes, u32 *words, u32 bytes_len) {
     u32 tmp;
@@ -245,14 +245,14 @@ struct Hasher {
     vector<Chunk> factory[FACTORY_HT];
 
     // methods
-    static Hasher new_internal(u32 key[8], u32 flags);
+    static Hasher new_internal(const u32 key[8], u32 flags);
     static Hasher _new();
 
     void update(char *input, int size);
     void finalize(vector<u8> &out_slice);
 };
 
-Hasher Hasher::new_internal(u32 key[8], u32 flags) {
+Hasher Hasher::new_internal(const u32 key[8], u32 flags) {
     return Hasher{
         {
             key[0], key[1], key[2], key[3],
