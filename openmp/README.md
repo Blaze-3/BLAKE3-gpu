@@ -5,7 +5,7 @@ How to use:
 * Run `g++ -Wall main.cpp` or `clang++ -Wall main.cpp`
 * To use CPU parallelism use `compiler main.cpp -fopenmp`
 * Execute the file as `./a.{exe, out} input_file`  
-* Remember to use the flags - `-std=c++17 -march=native` to try out SIMD
+* Remember to use the flags - `-march=native` to try out SIMD
 **Enhancement! -> Optimize the binary with -O3 while building the executable**  
 
 ## Testing

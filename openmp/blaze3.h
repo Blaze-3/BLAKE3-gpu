@@ -104,8 +104,6 @@ void compress(
     state[14] = block_len;
     state[15] = flags;
 
-    cerr << "Whaaaaaaaaaaaat\n";
-
     u32 block[16];
     memcpy(block, block_words, 16*sizeof(*block));
     
@@ -309,16 +307,15 @@ void Hasher::finalize(vector<u8> &out_slice) {
     factory_lock.lock();
     #endif
 
+    vector<Chunk> subtrees;
     Chunk root(flags, key);
     for(u32 i=0; i<FACTORY_HT; i++) {
-        vector<Chunk> subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
             continue;
         int start = 0;
         while(divider) {
             if(n&divider) {
-                // cout << "hashing " << divider << " at level " << i << endl;
                 subtrees.emplace_back(
                     hash_many(factory[i], start, start+divider)
                 );
@@ -341,6 +338,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
             factory[i+1].push_back(subtrees[0]);
         else
             root = subtrees[0];
+        subtrees.clear();
     }
     hash_root(root, out_slice);
 }

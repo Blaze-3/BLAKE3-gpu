@@ -5,17 +5,20 @@ Parallelizing the BLAKE3 crypto hash function via the merkle tree structure
 
 ## What
 BLAKE3 is a gg crypto hash function. It has good scope for parallelism.  
-We try to extract as much of that parallelism as possible by using GPUs.
+We try to extract as much of that parallelism as possible by using GPUs.  
+We also try to speed it up on the CPU with Open-MP and AVX2.  
+All of this is possible due to our new algorithm - Blaze3.
 
 ## How 
 - [x] Rewrite the basic, reference implemenation in C++
 - [x] Rewrite it again, in CUDA C++
 - [x] Make sure all the tests pass (Continuous process)
-- [ ] Optimize it, fix memory bandwidth issues if they exist
+- [x] Optimize it, fix memory bandwidth issues if they exist (Continuous process)
 
 ## Development
 - The `basic` directory has the reference implementations.
+- A full copy of the original reference implementation is in `testing`.
 - The blake3 paper is also here for reference.  
 - Openmp work in `openmp`. This version is maxed out for efficency.
-- Cuda work in `cuda`
-- Dark cuda work happens in `dark`
+- Cuda work in `cuda`.
+- Dark cuda work happens in `dark`.
