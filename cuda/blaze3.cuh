@@ -156,7 +156,7 @@ struct Chunk {
 };
 __global__ void d_compress(u32 out_flags, Chunk *to_compress){
     if((to_compress->flags)&PARENT){
-        d_compress<<<1,1>>>(
+        d_actual_compress<<<1,1>>>(
             to_compress->key,
             to_compress->data,
             0,
@@ -176,7 +176,51 @@ __global__ void d_compress(u32 out_flags, Chunk *to_compress){
         }
         for(u32 i=0; i< (to_compress->leaf_len); i+=BLOCK_LEN){
             flagger=to_compress->flags;
-            
+            if( (i+BLOCK_LEN) > (to_compress->leaf_len) ){
+                block_len = (to_compress->leaf_len)%BLOCK_LEN;
+            }
+            else{
+                block_len = BLOCK_LEN;
+            }
+            if(empty_input){
+                block_len=0;
+            }
+            u32 *block_words;
+            cudaMalloc(&block_words,sizeof(unsigned int)*16);
+            cudaMemset(block_words,0,16*sizeof(*block_words));
+            u32 new_block_len(block_len);
+            if(block_len%4){
+                new_block_len += 4-(block_len%4);
+            }
+            u8 *block_cast;
+            cudaMalloc(&block_cast,new_block_len*sizeof(u8));
+            memset(block_cast,0,new_block_len* sizeof(*block_cast));
+            memcpy(block_cast, (to_compress->leaf_data)+i, block_len*sizeof(*block_cast));
+            u32 tmp;
+            //words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+            for(u32 i=0; i<new_block_len; i+=4){
+                tmp = (block_cast[i+3]<<24) | (block_cast[i+2]<<16) | (block_cast[i+1]<<8) | block_cast[i];
+                block_words[i/4]=tmp;
+            }
+            CudaFree(block_cast);
+            if(i==0){
+                flagger |= CHUNK_START;
+            }
+            if(i+BLOCK_LEN >= to_compress->leaf_len){
+                flagger |= CHUNK_END | out_flags;
+            }
+            d_actual_compress<<<1,1>>>(
+                chaining_value,
+                block_words,
+                to_compress->counter,
+                to_compress->block_len,
+                flagger,
+                to_compress->raw_hash,
+            )
+            CudaFree(block_words);
+            memcpy(chaining_value,raw_hash,8*sizeof(u32))
+
+
         }
     }
 }
