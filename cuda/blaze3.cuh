@@ -28,18 +28,35 @@ const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
 
-u32 IV[8] = {
+__managed__ u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
 
-const int MSG_PERMUTATION[] = {
+__managed__ const int MSG_PERMUTATION[] = {
     2, 6, 3, 10, 7, 0, 4, 13, 
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
 u32 rotr(u32 value, int shift) {
     return (value >> shift)|(value << (usize - shift));
+}
+__global__ void d_g (u32 *state, u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+    state[a] = state[a] + state[b] + mx;
+    //state[d] = rotr((state[d] ^ state[a]), 16);
+    state[d] =((state[d] ^ state[a])>>16) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-16)); 
+    state[c] = state[c] + state[d];
+
+    //state[b] = rotr((state[b] ^ state[c]), 12);
+    state[b] =((state[b] ^ state[c])>>12) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-12)); 
+
+    state[a] = state[a] + state[b] + my;
+    //state[d] = rotr((state[d] ^ state[a]), 8);
+    state[d] =((state[d] ^ state[a])>>8) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-8)); 
+
+    state[c] = state[c] + state[d];
+    //state[b] = rotr((state[b] ^ state[c]), 7);
+    state[b] =((state[b] ^ state[c])>>7) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-7));     
 }
 
 void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
@@ -55,6 +72,19 @@ void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[b] = rotr((state[b] ^ state[c]), 7);
 }
 
+__global__ void d_round(u32 *state, u32 *m) {
+    // Mix the columns.
+    d_g<<<1,1>>>(state, 0, 4, 8, 12, m[0], m[1]);
+    d_g<<<1,1>>>(state, 1, 5, 9, 13, m[2], m[3]);
+    d_g<<<1,1>>>(state, 2, 6, 10, 14, m[4], m[5]);
+    d_g<<<1,1>>>(state, 3, 7, 11, 15, m[6], m[7]);
+    // Mix the diagonals.
+    d_g<<<1,1>>>(state, 0, 5, 10, 15, m[8], m[9]);
+    d_g<<<1,1>>>(state, 1, 6, 11, 12, m[10], m[11]);
+    d_g<<<1,1>>>(state, 2, 7, 8, 13, m[12], m[13]);
+    d_g<<<1,1>>>(state, 3, 4, 9, 14, m[14], m[15]);
+}
+
 void round(u32 state[16], u32 m[16]) {
     // Mix the columns.
     g(state, 0, 4, 8, 12, m[0], m[1]);
@@ -68,12 +98,61 @@ void round(u32 state[16], u32 m[16]) {
     g(state, 3, 4, 9, 14, m[14], m[15]);
 }
 
+__global__ void d_permute(u32 *m) {
+    u32 *permuted;
+    cudaMalloc(&permuted,16*sizeof(u32);)
+    for(int i=0; i<16; i++)
+        permuted[i] = m[MSG_PERMUTATION[i]];
+    for(int i=0; i<16; i++)
+        m[i] = permuted[i];
+}
+
+
 void permute(u32 m[16]) {
     u32 permuted[16];
     for(int i=0; i<16; i++)
         permuted[i] = m[MSG_PERMUTATION[i]];
     for(int i=0; i<16; i++)
         m[i] = permuted[i];
+}
+
+__global__ void d_actual_compress(
+    u32 *chaining_value
+    u32 *block_words,
+    u64 counter,
+    u32 block_len,
+    u32 flags,
+    u32 *state
+){
+    memcpy(chaining_value,state,sizeof(u32)*8);
+    memcpy(IV,state+8,sizeof(u32)*4);
+    state[12]=(u32)counter;
+    state[13]=(u32)(counter >> 32);
+    state[14]=block_len;
+    state[15]=flags;
+    u32 *block;
+    cudaMalloc(&block,sizeof(u32)*16);
+    memcpy(block_words,block,sizeof(u32)*16);
+
+    d_round(state, block); // round 1
+    d_permute(block);
+    d_round(state, block); // round 2
+    d_permute(block);
+    d_round(state, block); // round 3
+    d_permute(block);
+    d_round(state, block); // round 4
+    d_permute(block);
+    d_round(state, block); // round 5
+    d_permute(block);
+    d_round(state, block); // round 6
+    d_permute(block);
+    d_round(state, block); // round 7
+    for(int i=0; i<8; i++){
+        state[i] ^= state[i + 8];
+        state[i + 8] ^= chaining_value[i];
+    }
+
+
 }
 
 void compress(
