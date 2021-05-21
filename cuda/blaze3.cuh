@@ -27,7 +27,8 @@ const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
-
+__managed__ int check =0;
+__managed__ int check_2 =0;
 __managed__ u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
@@ -41,22 +42,35 @@ __managed__  int MSG_PERMUTATION[] = {
 u32 rotr(u32 value, int shift) {
     return (value >> shift)|(value << (usize - shift));
 }
+__global__ void d_rotr(u32 value, int shift, u32* tmp){
+    *tmp=(value >> shift)|(value << (usize - shift));
+}
 __global__ void d_g (u32 *state, u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+    u32 *tmp;
+    cudaMalloc(&tmp,sizeof(u32));
     state[a] = state[a] + state[b] + mx;
     //state[d] = rotr((state[d] ^ state[a]), 16);
     state[d] =((state[d] ^ state[a])>>16) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-16)); 
+    // d_rotr<<<1,1>>>((state[d] ^ state[a]), 16,tmp);
+    // state[d]=*tmp;
     state[c] = state[c] + state[d];
 
     //state[b] = rotr((state[b] ^ state[c]), 12);
     state[b] =((state[b] ^ state[c])>>12) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-12)); 
+    // d_rotr<<<1,1>>>((state[b] ^ state[c]), 12,tmp);
+    // state[b]=*tmp;
 
     state[a] = state[a] + state[b] + my;
     //state[d] = rotr((state[d] ^ state[a]), 8);
-    state[d] =((state[d] ^ state[a])>>8) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-8)); 
+    state[d] =((state[d] ^ state[a])>>8) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-8));
+    // d_rotr<<<1,1>>>((state[d] ^ state[a]), 8,tmp);
+    // state[d]=*tmp;
 
     state[c] = state[c] + state[d];
     //state[b] = rotr((state[b] ^ state[c]), 7);
-    state[b] =((state[b] ^ state[c])>>7) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-7));     
+    state[b] =((state[b] ^ state[c])>>7) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-7)); 
+    // d_rotr<<<1,1>>>((state[b] ^ state[c]), 7,tmp);
+    // state[b]=*tmp;    
 }
 
 void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
@@ -75,14 +89,22 @@ void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
 __global__ void d_round(u32 *state, u32 *m) {
     // Mix the columns.
     d_g<<<1,1>>>(state, 0, 4, 8, 12, m[0], m[1]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 1, 5, 9, 13, m[2], m[3]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 2, 6, 10, 14, m[4], m[5]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 3, 7, 11, 15, m[6], m[7]);
+    //cudaDeviceSynchronize();
     // Mix the diagonals.
     d_g<<<1,1>>>(state, 0, 5, 10, 15, m[8], m[9]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 1, 6, 11, 12, m[10], m[11]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 2, 7, 8, 13, m[12], m[13]);
+    //cudaDeviceSynchronize();
     d_g<<<1,1>>>(state, 3, 4, 9, 14, m[14], m[15]);
+    //cudaDeviceSynchronize();
 }
 
 void round(u32 state[16], u32 m[16]) {
@@ -127,7 +149,7 @@ __global__ void d_actual_compress(u32 *chaining_value,u32 *block_words,u64 count
     u32 *block;
     cudaMalloc(&block,sizeof(u32)*16);
     memcpy(block,block_words,sizeof(u32)*16);
-    /*
+    
     d_round<<<1,1>>>(state, block); // round 1
     d_permute<<<1,1>>>(block);
     d_round<<<1,1>>>(state, block); // round 2
@@ -144,7 +166,7 @@ __global__ void d_actual_compress(u32 *chaining_value,u32 *block_words,u64 count
     for(int i=0; i<8; i++){
         state[i] ^= state[i + 8];
         state[i + 8] ^= chaining_value[i];
-    }*/
+    }
 
 
 }
@@ -229,6 +251,7 @@ struct Chunk {
 };
 __global__ void d_compress(u32 out_flags, Chunk *to_compress){
     if((to_compress->flags)&PARENT){
+        //printf("%s \n","if");
         d_actual_compress<<<1,1>>>(
             to_compress->key,
             to_compress->data,
@@ -237,9 +260,10 @@ __global__ void d_compress(u32 out_flags, Chunk *to_compress){
             (to_compress->flags)|out_flags,
             to_compress->raw_hash
         );
+        cudaDeviceSynchronize();
     }
     else{
-        
+        //printf("%s \n","else");
         u32 *chaining_value, block_len = BLOCK_LEN, flagger;
         cudaMalloc(&chaining_value,sizeof(u32)*8);
         memcpy(chaining_value,to_compress->key,8*sizeof(u32));
@@ -292,6 +316,7 @@ __global__ void d_compress(u32 out_flags, Chunk *to_compress){
                 flagger,
                 to_compress->raw_hash
             );
+            cudaDeviceSynchronize();
             cudaFree(block_words);
             memcpy(chaining_value,to_compress->raw_hash,8*sizeof(u32));
 
@@ -506,12 +531,15 @@ __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent )
     Chunk *right;
     cudaMalloc(&right,sizeof(Chunk));
 
-    
-    //cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    d_hashmany<<<1,1>>>(d_data, first, first+n/2, left);
+    cudaStream_t s1,s2;
 
-    //cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    d_hashmany<<<1,1>>>(d_data, first+n/2, last, right);
+    cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    d_hashmany<<<1,1,1,s1>>>(d_data, first, first+n/2, left);
+    cudaDeviceSynchronize();
+
+    cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    d_hashmany<<<1,1,1,s2>>>(d_data, first+n/2, last, right);
+    cudaDeviceSynchronize();
 
     d_parent->flags = left->flags | PARENT;
     memcpy(d_parent->key,left->key, 32);
@@ -572,7 +600,7 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     //pointers for device
     Chunk *d_data;
     Chunk *d_parent;
-    Chunk *checker=(Chunk*)malloc(sizeof(Chunk));
+    //Chunk *checker=(Chunk*)malloc(sizeof(Chunk));
     
     //allocate on device
     cudaMalloc(&d_data,sizeof(Chunk)*(last-first));
@@ -584,20 +612,24 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyHostToDevice);
     
 
-    cudaMemcpy(checker,d_data,sizeof(Chunk)*(last-first),cudaMemcpyDeviceToHost);
+    //cudaMemcpy(checker,d_data,sizeof(Chunk)*(last-first),cudaMemcpyDeviceToHost);
 
 
     //cout<<checker[0].raw_hash[1]<<endl;  
     //cout.flush(); 
-    cudaDeviceSynchronize();
+    
     //cout<<last-first<<endl;
     d_hashmany<<<1,1>>>(d_data,first,last,d_parent);
-    
+    cudaDeviceSynchronize();
     
     cudaMemcpy(parent,d_parent,sizeof(Chunk),cudaMemcpyDeviceToHost);
 
     cudaFree(d_data);
     cudaFree(d_parent);
+    // cout<<check<<endl;
+    // cout<<check_2<<endl;
+    // cout<<"_______"<<endl;
+
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
