@@ -9,8 +9,7 @@ using namespace std;
 using u32 = unsigned int;
 using u64 = unsigned long long;
 using u8  = unsigned char;
-int check=0;
-int check_2=0;
+
 
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
@@ -160,7 +159,7 @@ void Chunk::compress_chunk(u32 out_flags) {
         // cout << "Compressing parent\n";
         // only 1 message block
         // raw hash for root node
-        cout<<"check: "<<check++<<endl;
+        
         compress(
             key,
             data.data(),
@@ -171,7 +170,7 @@ void Chunk::compress_chunk(u32 out_flags) {
         );
     }
     else {
-        cout<<"check_2: "<<check_2++<<endl;
+        
         // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
         u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
         copy(key, key+8, chaining_value);

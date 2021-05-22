@@ -9,7 +9,9 @@ using namespace std;
 using u32 = unsigned int;
 using u64 = unsigned long long;
 using u8  = unsigned char;
- 
+int check=0;
+int check_2=0;
+
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
@@ -88,6 +90,10 @@ void compress(
     u32 flags,
     u32 state[16]
 ) {
+    for (int i=0;i<16;i++){
+        printf("%d ",chaining_value[i]);
+    }
+    printf("\n");
     copy(chaining_value, chaining_value+8, state);
     copy(IV, IV+4, state+8);
     state[12] = (u32)counter;
@@ -158,6 +164,7 @@ void Chunk::compress_chunk(u32 out_flags) {
         // cout << "Compressing parent\n";
         // only 1 message block
         // raw hash for root node
+        //cout<<"check: "<<check++<<endl;
         compress(
             key,
             data.data(),
@@ -168,6 +175,7 @@ void Chunk::compress_chunk(u32 out_flags) {
         );
     }
     else {
+        //cout<<"check_2: "<<check_2++<<endl;
         // cout << "Compressing leaf of size: " << leaf_data.size() << endl;
         u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
         copy(key, key+8, chaining_value);
@@ -337,9 +345,6 @@ void Hasher::finalize(vector<u8> &out_slice) {
 // A divide and conquer approach
 Chunk hash_many(vector<Chunk> &data, int first, int last) {
     // n will always be a power of 2
-    for(int l=0; l<(last-first);l++){
-        cout<<&(data[l].leaf_data)<<endl;
-    }
     int n = last-first;
     if(n == 1) {
         data[first].compress_chunk();
