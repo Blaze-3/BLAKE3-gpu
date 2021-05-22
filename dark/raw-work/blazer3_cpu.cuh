@@ -2,44 +2,41 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
-#include <future>
-#include <mutex>
 using namespace std;
 
-#if defined(_OPENMP)
-// 4 lane (i.e. kit-kat) style speed up only when OMP used
-// for no reason other than removing all parallelism from serial version
-#include "_avx2_choco.h"
-#endif
+// Let's use a pinned memory vector!
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/system/cuda/experimental/pinned_allocator.h>
 
-#ifndef _AVX2_CHOCO_H
-// these types are already defined there
-using u32 = uint32_t;
-using u64 = uint64_t;
-using u8  = uint8_t;
-#endif
+using u32 = unsigned int;
+using u64 = unsigned long long;
+using u8  = unsigned char;
  
 const u32 OUT_LEN = 32;
 const u32 KEY_LEN = 32;
 const u32 BLOCK_LEN = 64;
 const u32 CHUNK_LEN = 1024;
 // Multiple chunks make a snicker bar :)
-const u32 SNICKER = 1U << 9;
+// This snicker size means ~8MB of data will be transferred to the GPU
+// every time we get a snicker bar. My GPU's transfer size is 16MB.
+// this is the highest value that does not exceed the transfer size for sure
+const u32 SNICKER = 1U << 16;
 // Factory height and snicker size have an inversly propotional relationship
 // FACTORY_HT * (log2 SNICKER) + 10 >= 64 
-const u32 FACTORY_HT = 6;
+const u32 FACTORY_HT = 4;
 
 const u32 CHUNK_START = 1 << 0;
 const u32 CHUNK_END = 1 << 1;
 const u32 PARENT = 1 << 2;
 const u32 ROOT = 1 << 3;
 const u32 KEYED_HASH = 1 << 4;
+const u32 DERIVE_KEY_CONTEXT = 1 << 5;
+const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
-mutex factory_lock;
-const int IS_ASYNC = 0;
 
-const u32 IV[8] = {
+u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
@@ -87,25 +84,23 @@ void permute(u32 m[16]) {
         m[i] = permuted[i];
 }
 
-#ifndef _AVX2_CHOCO_H
-// AVX2 has a specialized version for this
 void compress(
-    u32 chaining_value[8],
-    u32 block_words[16],
+    u32 *chaining_value,
+    u32 *block_words,
     u64 counter,
     u32 block_len,
     u32 flags,
-    u32 state[16]
+    u32 *state
 ) {
-    memcpy(state, chaining_value, 8*sizeof(*state));
-    memcpy(state+8, IV, 4*sizeof(*state));
+    copy(chaining_value, chaining_value+8, state);
+    copy(IV, IV+4, state+8);
     state[12] = (u32)counter;
     state[13] = (u32)(counter >> 32);
     state[14] = block_len;
     state[15] = flags;
 
     u32 block[16];
-    memcpy(block, block_words, 16*sizeof(*block));
+    copy(block_words, block_words+16, block);
     
     round(state, block); // round 1
     permute(block);
@@ -126,7 +121,6 @@ void compress(
         state[i + 8] ^= chaining_value[i];
     }
 }
-#endif
 
 void words_from_little_endian_bytes(u8 *bytes, u32 *words, u32 bytes_len) {
     u32 tmp;
@@ -150,23 +144,24 @@ struct Chunk {
     // only useful for leaf nodes
     u64 counter;
     // Constructor for leaf nodes
-    Chunk(char *input, int size, u32 _flags, u32 *_key, u64 ctr){
+    Chunk(vector<u8> &input, u32 _flags, u32 *_key, u64 ctr){
         counter = ctr;
         flags = _flags;
-        memcpy(key, _key, 8*sizeof(*key));
-        memset(leaf_data, 0, 1024);
-        memcpy(leaf_data, input, size);
-        leaf_len = size;
+        copy(_key, _key+8, key);
+        copy(begin(input), end(input), begin(leaf_data));
+        leaf_len = input.size();
     }
     Chunk(u32 _flags, u32 *_key) {
         counter = 0;
         flags = _flags;
-        memcpy(key, _key, 8*sizeof(*key));
+        copy(_key, _key+8, key);
         leaf_len = 0;
     }
-    Chunk() : leaf_len(0) {}
+    Chunk() {}
+    // Chunk() : leaf_len(0) {}
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
+    __device__ void g_compress_chunk(u32=0);
 };
 
 void Chunk::compress_chunk(u32 out_flags) {
@@ -183,7 +178,7 @@ void Chunk::compress_chunk(u32 out_flags) {
     }
 
     u32 chaining_value[8], block_len = BLOCK_LEN, flagger;
-    memcpy(chaining_value, key, 8*sizeof(*chaining_value));
+    copy(key, key+8, chaining_value);
 
     bool empty_input = (leaf_len==0);
     if(empty_input) {
@@ -209,8 +204,14 @@ void Chunk::compress_chunk(u32 out_flags) {
         u32 new_block_len(block_len);
         if(block_len%4)
             new_block_len += 4 - (block_len%4);
-
-        words_from_little_endian_bytes(leaf_data+i, block_words, new_block_len);
+        
+        // BLOCK_LEN is the max possible length of block_cast
+        u8 block_cast[BLOCK_LEN];
+        
+        memset(block_cast, 0, new_block_len*sizeof(*block_cast));
+        memcpy(block_cast, leaf_data+i, block_len*sizeof(*block_cast));
+        
+        words_from_little_endian_bytes(block_cast, block_words, new_block_len);
 
         if(i==0)
             flagger |= CHUNK_START;
@@ -226,12 +227,43 @@ void Chunk::compress_chunk(u32 out_flags) {
             flagger,
             raw_hash
         );
-
-        memcpy(chaining_value, raw_hash, 8*sizeof(*chaining_value));
+        memcpy(chaining_value, raw_hash, 32);
     }
 }
 
-Chunk hash_many(vector<Chunk> &data, int first, int last);
+using thrust_vector = thrust::host_vector<
+    Chunk,
+    thrust::system::cuda::experimental::pinned_allocator<Chunk>
+>;
+
+void dark_hash(Chunk*, int, Chunk*);
+
+// Sanity checks
+Chunk hash_many(thrust_vector &data, int first, int last) {
+    // n will always be a power of 2
+    int n = last-first;
+    // Reduce GPU calling overhead
+    if(n == 1) {
+        data[first].compress_chunk();
+        return data[first];
+    }
+    
+    Chunk ret;
+    dark_hash(data.data()+first, n, &ret);
+    return ret;
+
+    // CPU style execution
+    // Chunk left, right;
+    // left = hash_many(data, first, first+n/2);
+    // right = hash_many(data, first+n/2, last);
+    // Chunk parent(left.flags, left.key);
+    // parent.flags |= PARENT;
+    // memcpy(parent.data, left.raw_hash, 32);
+    // memcpy(parent.data+8, right.raw_hash, 32);
+    // parent.compress_chunk();
+    // return parent;
+}
+
 Chunk merge(Chunk &left, Chunk &right);
 void hash_root(Chunk &node, vector<u8> &out_slice);
 
@@ -239,18 +271,20 @@ struct Hasher {
     u32 key[8];
     u32 flags;
     u64 ctr;
-    // Factory of FACTORY_HT possible SNICKER bars
-    vector<Chunk> factory[FACTORY_HT];
+    // Factory is an array of FACTORY_HT possible SNICKER bars
+    thrust_vector factory[FACTORY_HT];
+    thrust_vector bar;
 
     // methods
-    static Hasher new_internal(const u32 key[8], u32 flags);
+    static Hasher new_internal(u32 key[8], u32 flags);
     static Hasher _new();
 
-    void update(char *input, int size);
+    void update(vector<u8> &input);
     void finalize(vector<u8> &out_slice);
+    void propagate();
 };
 
-Hasher Hasher::new_internal(const u32 key[8], u32 flags) {
+Hasher Hasher::new_internal(u32 key[8], u32 flags) {
     return Hasher{
         {
             key[0], key[1], key[2], key[3],
@@ -261,64 +295,46 @@ Hasher Hasher::new_internal(const u32 key[8], u32 flags) {
     };
 }
 
-Hasher Hasher::_new() {
-    return new_internal(IV, 0);
-}
+Hasher Hasher::_new() { return new_internal(IV, 0); }
 
-void propagate(Hasher *h) {
+void Hasher::propagate() {
     int level=0;
-    while(h->factory[level].size() == SNICKER) {
-        // nodes move to upper levels if lower one is one SNICKER long
-        Chunk subtree = hash_many(
-            h->factory[level], 0, h->factory[level].size()
-        );
-        h->factory[level].clear();
+    // nodes move to upper levels if lower one is one SNICKER long
+    while(factory[level].size() == SNICKER) {
+        Chunk subtree = hash_many(factory[level], 0, SNICKER);
+        factory[level].clear();
         ++level;
-        h->factory[level].emplace_back(subtree);
+        factory[level].push_back(subtree);
     }
-    #if IS_ASYNC
-    factory_lock.unlock();
-    #endif
 } 
 
-void Hasher::update(char *input, int size) {
-    factory[0].emplace_back(input, size, flags, key, ctr);
+void Hasher::update(vector<u8> &input) {
+    bar.push_back(Chunk(input, flags, key, ctr));
     ++ctr;
-    if(factory[0].size() == SNICKER) {
-        // Let this run in the background
-        // Async version slows down execution by 2x
-        #if IS_ASYNC
-        factory_lock.lock();
-        static_cast<void>(async(propagate, this));
-        #else
-        propagate(this);
-        #endif
+    if(bar.size() == SNICKER) {
+        thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
+        // copy(begin(bar), end(bar), back_inserter(factory[0]));
+        bar.clear();
+        propagate();
     }
 }
 
 void Hasher::finalize(vector<u8> &out_slice) {
-    // cout << "Finalizing\n";
-    // New style
-    // At every level, compress biggest to smallest, then merge them all in the reverse order
-    // Pass on the new node to the upper level
-    // Continue till topmost level reached. Guaranteed only one node there
-    // Root hash the final node
-    #if IS_ASYNC
-    factory_lock.lock();
-    #endif
+    // Look at openmp or cuda for explanation
+    thrust::copy(begin(bar), end(bar), back_inserter(factory[0]));
+    // copy(begin(bar), end(bar), back_inserter(factory[0]));
 
-    vector<Chunk> subtrees;
     Chunk root(flags, key);
-    for(u32 i=0; i<FACTORY_HT; i++) {
+    for(int i=0; i<FACTORY_HT; i++) {
+        thrust_vector subtrees;
         u32 n = factory[i].size(), divider=SNICKER;
         if(!n)
             continue;
         int start = 0;
         while(divider) {
             if(n&divider) {
-                subtrees.emplace_back(
-                    hash_many(factory[i], start, start+divider)
-                );
+                Chunk subtree = hash_many(factory[i], start, start+divider);
+                subtrees.push_back(subtree);
                 start += divider;
             }
             divider >>= 1;
@@ -338,43 +354,8 @@ void Hasher::finalize(vector<u8> &out_slice) {
             factory[i+1].push_back(subtrees[0]);
         else
             root = subtrees[0];
-        subtrees.clear();
     }
     hash_root(root, out_slice);
-}
-
-// A divide and conquer approach
-Chunk hash_many(vector<Chunk> &data, int first, int last) {
-    // n will always be a power of 2
-    int n = last-first;
-    if(n == 1) {
-        data[first].compress_chunk();
-        return data[first];
-    }
-    // cout << "Called hash many for size: " << n << endl;
-
-    Chunk left, right;
-    // parallelism here
-    // left and right computation can be done simultaneously
-    #pragma omp parallel
-    {
-        #pragma omp single
-        {
-            #pragma omp task
-            left = hash_many(data, first, first+n/2);
-            #pragma omp task
-            right = hash_many(data, first+n/2, last);
-        }
-    }
-    // parallelism ends
-
-    Chunk parent(left.flags, left.key);
-    parent.flags |= PARENT;
-    memcpy(parent.data, left.raw_hash, 32);
-    memcpy(parent.data+8, right.raw_hash, 32);
-
-    parent.compress_chunk();
-    return parent;
 }
 
 Chunk merge(Chunk &left, Chunk &right) {
@@ -384,6 +365,7 @@ Chunk merge(Chunk &left, Chunk &right) {
 
     Chunk parent(left.flags, left.key);
     parent.flags |= PARENT;
+    // 32 bytes need to be copied for all of these
     memcpy(parent.data, left.raw_hash, 32);
     memcpy(parent.data+8, right.raw_hash, 32);
     return parent;
@@ -401,7 +383,7 @@ void hash_root(Chunk &node, vector<u8> &out_slice) {
         node.compress_chunk(ROOT);
         
         // words is u32[16]
-        memcpy(words, node.raw_hash, 16*sizeof(*words));
+        copy(node.raw_hash, node.raw_hash+16, words);
         
         vector<u8> out_block(min(k, (u64)out_slice.size()-i));
         for(u32 l=0; l<out_block.size(); l+=4) {

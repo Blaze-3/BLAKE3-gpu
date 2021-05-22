@@ -27,23 +27,14 @@ const u32 DERIVE_KEY_CONTEXT = 1 << 5;
 const u32 DERIVE_KEY_MATERIAL = 1 << 6;
 
 const int usize = sizeof(u32) * 8;
-
-u32 IV[8] = {
+__managed__ int check =0;
+__managed__ int check_2 =0;
+__managed__ u32 IV[8] = {
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
     0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 };
 
-int MSG_PERMUTATION[] = {
-    2, 6, 3, 10, 7, 0, 4, 13, 
-    1, 11, 12, 5, 9, 14, 15, 8
-};
-
-__constant__ const u32 g_IV[8] = {
-    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 
-    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
-};
-
-__constant__ const int g_MSG_PERMUTATION[] = {
+__managed__  int MSG_PERMUTATION[] = {
     2, 6, 3, 10, 7, 0, 4, 13, 
     1, 11, 12, 5, 9, 14, 15, 8
 };
@@ -51,25 +42,39 @@ __constant__ const int g_MSG_PERMUTATION[] = {
 u32 rotr(u32 value, int shift) {
     return (value >> shift)|(value << (usize - shift));
 }
-
-__device__ u32 g_rotr(u32 value, int shift) {
-    return (value >> shift)|(value << (usize - shift));
+__global__ void d_rotr(u32 value, int shift, u32* tmp){
+    *tmp=(value >> shift)|(value << (usize - shift));
 }
-
-__device__ void g_g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+__global__ void d_g (u32 *state, u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+    u32 *tmp;
+    cudaMalloc(&tmp,sizeof(u32));
     state[a] = state[a] + state[b] + mx;
-    state[d] = g_rotr((state[d] ^ state[a]), 16);
+    //state[d] = rotr((state[d] ^ state[a]), 16);
+    state[d] =((state[d] ^ state[a])>>16) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-16)); 
+    // d_rotr<<<1,1>>>((state[d] ^ state[a]), 16,tmp);
+    // state[d]=*tmp;
     state[c] = state[c] + state[d];
 
-    state[b] = g_rotr((state[b] ^ state[c]), 12);
+    //state[b] = rotr((state[b] ^ state[c]), 12);
+    state[b] =((state[b] ^ state[c])>>12) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-12)); 
+    // d_rotr<<<1,1>>>((state[b] ^ state[c]), 12,tmp);
+    // state[b]=*tmp;
+
     state[a] = state[a] + state[b] + my;
-    state[d] = g_rotr((state[d] ^ state[a]), 8);
+    //state[d] = rotr((state[d] ^ state[a]), 8);
+    state[d] =((state[d] ^ state[a])>>8) |((state[d] ^ state[a])<<((sizeof(u32) * 8)-8));
+    // d_rotr<<<1,1>>>((state[d] ^ state[a]), 8,tmp);
+    // state[d]=*tmp;
 
     state[c] = state[c] + state[d];
-    state[b] = g_rotr((state[b] ^ state[c]), 7);
+    //state[b] = rotr((state[b] ^ state[c]), 7);
+    state[b] =((state[b] ^ state[c])>>7) |((state[b] ^ state[c])<<((sizeof(u32) * 8)-7)); 
+    // d_rotr<<<1,1>>>((state[b] ^ state[c]), 7,tmp);
+    // state[b]=*tmp; 
+    
 }
 
-void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
+void g (u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[a] = state[a] + state[b] + mx;
     state[d] = rotr((state[d] ^ state[a]), 16);
     state[c] = state[c] + state[d];
@@ -82,17 +87,17 @@ void g(u32 state[16], u32 a, u32 b, u32 c, u32 d, u32 mx, u32 my) {
     state[b] = rotr((state[b] ^ state[c]), 7);
 }
 
-__device__ void g_round(u32 state[16], u32 m[16]) {
+__global__ void d_round(u32 *state, u32 *m) {
     // Mix the columns.
-    g_g(state, 0, 4, 8, 12, m[0], m[1]);
-    g_g(state, 1, 5, 9, 13, m[2], m[3]);
-    g_g(state, 2, 6, 10, 14, m[4], m[5]);
-    g_g(state, 3, 7, 11, 15, m[6], m[7]);
+    d_g<<<1,1>>>(state, 0, 4, 8, 12, m[0], m[1]);
+    d_g<<<1,1>>>(state, 1, 5, 9, 13, m[2], m[3]);
+    d_g<<<1,1>>>(state, 2, 6, 10, 14, m[4], m[5]);
+    d_g<<<1,1>>>(state, 3, 7, 11, 15, m[6], m[7]);
     // Mix the diagonals.
-    g_g(state, 0, 5, 10, 15, m[8], m[9]);
-    g_g(state, 1, 6, 11, 12, m[10], m[11]);
-    g_g(state, 2, 7, 8, 13, m[12], m[13]);
-    g_g(state, 3, 4, 9, 14, m[14], m[15]);
+    d_g<<<1,1>>>(state, 0, 5, 10, 15, m[8], m[9]);
+    d_g<<<1,1>>>(state, 1, 6, 11, 12, m[10], m[11]);
+    d_g<<<1,1>>>(state, 2, 7, 8, 13, m[12], m[13]);
+    d_g<<<1,1>>>(state, 3, 4, 9, 14, m[14], m[15]);
 }
 
 void round(u32 state[16], u32 m[16]) {
@@ -108,26 +113,16 @@ void round(u32 state[16], u32 m[16]) {
     g(state, 3, 4, 9, 14, m[14], m[15]);
 }
 
-__device__ void g_permute(u32 m[16]) {
-    u32 permuted[16];
+__global__ void d_permute(u32 *m) {
+    u32 *permuted;
+    cudaMalloc(&permuted,16*sizeof(u32));
     for(int i=0; i<16; i++)
-        permuted[i] = m[g_MSG_PERMUTATION[i]];
+        permuted[i] = m[MSG_PERMUTATION[i]];
     for(int i=0; i<16; i++)
         m[i] = permuted[i];
+    
 }
 
-__device__ void g_memcpy(u32 *lhs, const u32 *rhs, int size) {
-    // assuming u32 is 4 bytes
-    int len = size / 4;
-    for(int i=0; i<len; i++)
-        lhs[i] = rhs[i];
-}
-
-template<typename T, typename ptr_t>
-__device__ void g_memset(ptr_t dest, T val, int count) {
-    for(int i=0; i<count; i++)
-        dest[i] = val;
-}
 
 void permute(u32 m[16]) {
     u32 permuted[16];
@@ -137,53 +132,37 @@ void permute(u32 m[16]) {
         m[i] = permuted[i];
 }
 
-__device__ void g_compress(
-    u32 *chaining_value,
-    u32 *block_words,
-    u64 counter,
-    u32 block_len,
-    u32 flags,
-    u32 *state
-) {
-    // Search for better alternative
-    g_memcpy(state, chaining_value, 32);
-    g_memcpy(state+8, g_IV, 16);
-    state[12] = (u32)counter;
-    state[13] = (u32)(counter >> 32);
-    state[14] = block_len;
-    state[15] = flags;
-
-    u32 block[16];
-    g_memcpy(block, block_words, 64);
+__global__ void d_actual_compress(u32 *chaining_value,u32 *block_words,u64 counter,u32 block_len,u32 flags,u32 *state){
     
-    g_round(state, block); // round 1
-    g_permute(block);
-    g_round(state, block); // round 2
-    g_permute(block);
-    g_round(state, block); // round 3
-    g_permute(block);
-    g_round(state, block); // round 4
-    g_permute(block);
-    g_round(state, block); // round 5
-    g_permute(block);
-    g_round(state, block); // round 6
-    g_permute(block);
-    g_round(state, block); // round 7
-
+    
+    memcpy(state,chaining_value,sizeof(u32)*8);
+    memcpy(state+8,IV,sizeof(u32)*4);
+    state[12]=(u32)counter;
+    state[13]=(u32)(counter >> 32);
+    state[14]=block_len;
+    state[15]=flags;
+    u32 *block;
+    cudaMalloc(&block,sizeof(u32)*16);
+    memcpy(block,block_words,sizeof(u32)*16);
+    d_round<<<1,1>>>(state, block); // round 1
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 2
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 3
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 4
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 5
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 6
+    d_permute<<<1,1>>>(block);
+    d_round<<<1,1>>>(state, block); // round 7/
     for(int i=0; i<8; i++){
         state[i] ^= state[i + 8];
         state[i + 8] ^= chaining_value[i];
     }
-}
 
-__device__ void g_words_from_little_endian_bytes(
-    u8 *bytes, u32 *words, u32 bytes_len
-) {
-    u32 tmp;
-    for(u32 i=0; i<bytes_len; i+=4) {
-        tmp = (bytes[i+3]<<24) | (bytes[i+2]<<16) | (bytes[i+1]<<8) | bytes[i];
-        words[i/4] = tmp;
-    }
+
 }
 
 void compress(
@@ -264,80 +243,82 @@ struct Chunk {
     Chunk() : leaf_len(0) {}
     // process data in sizes of message blocks and store cv in hash
     void compress_chunk(u32=0);
-    __device__ void g_compress_chunk(u32=0);
 };
-
-__device__ void Chunk::g_compress_chunk(u32 out_flags) {
-    if(flags&PARENT) {
-        g_compress(
-            key,
-            data,
-            0,  // counter is always zero for parent nodes
+__global__ void d_compress(u32 out_flags, Chunk *to_compress){
+    if((to_compress->flags)&PARENT){  
+        //printf("%s","cuda can fuckoff");
+        d_actual_compress<<<1,1>>>(
+            to_compress->key,
+            to_compress->data,
+            0,
             BLOCK_LEN,
-            flags | out_flags,
-            raw_hash
-        );
-        return;
-    }
-
-    u32 chaining_value[8];
-    u32 block_len = BLOCK_LEN, flagger;
-    g_memcpy(chaining_value, key, 32);
-
-    bool empty_input = (leaf_len==0);
-    if(empty_input) {
-        for(u32 i=0; i<BLOCK_LEN; i++)
-            leaf_data[i] = 0U;
-        leaf_len = BLOCK_LEN;
-    }
-
-    // move all mem allocs outside loop
-    u32 block_words[16];
-    u8 block_cast[BLOCK_LEN];
-
-    for(u32 i=0; i<leaf_len; i+=BLOCK_LEN) {
-        flagger = flags;
-        // for the last message block
-        if(i+BLOCK_LEN > leaf_len)
-            block_len = leaf_len%BLOCK_LEN;
-        else
-            block_len = BLOCK_LEN;
-
-        // special case
-        if(empty_input)
-            block_len = 0;
-        
-        // clear up block_words
-        g_memset(block_words, 0, 16);
-
-        u32 new_block_len(block_len);
-        if(block_len%4)
-            new_block_len += 4 - (block_len%4);
-        
-        // This memcpy is fine since data is a byte array
-        memcpy(block_cast, leaf_data+i, new_block_len*sizeof(*block_cast));
-        
-        g_words_from_little_endian_bytes(leaf_data+i, block_words, new_block_len);
-
-        if(i==0)
-            flagger |= CHUNK_START;
-        if(i+BLOCK_LEN >= leaf_len)
-            flagger |= CHUNK_END | out_flags;
-
-        // raw hash for root node
-        g_compress(
-            chaining_value,
-            block_words,
-            counter,
-            block_len,
-            flagger,
-            raw_hash
+            (to_compress->flags)|out_flags,
+            to_compress->raw_hash
         );
 
-        g_memcpy(chaining_value, raw_hash, 32);
+    }
+    else{
+        // printf("compress a leaf \n");
+        u32 *chaining_value, block_len = BLOCK_LEN, flagger;
+        cudaMalloc(&chaining_value,sizeof(u32)*8);
+        memcpy(chaining_value,to_compress->key,8*sizeof(u32));
+        bool empty_input = ((to_compress->leaf_len)==0);
+        if (empty_input){
+            for(u32 i=0; i<BLOCK_LEN; i++){
+                (to_compress->leaf_data)[i]=0U;
+            }
+        }
+        for(u32 i=0; i< (to_compress->leaf_len); i+=BLOCK_LEN){
+            flagger=to_compress->flags;
+            if( (i+BLOCK_LEN) > (to_compress->leaf_len) ){
+                block_len = (to_compress->leaf_len)%BLOCK_LEN;
+            }
+            else{
+                block_len = BLOCK_LEN;
+            }
+            if(empty_input){
+                block_len=0;
+            }
+            u32 *block_words;
+            cudaMalloc(&block_words,sizeof(unsigned int)*16);
+            memset(block_words,0,16*sizeof(*block_words));
+            u32 new_block_len(block_len);
+            if(block_len%4){
+                new_block_len += 4-(block_len%4);
+            }
+            u8 *block_cast;
+            cudaMalloc(&block_cast,new_block_len*sizeof(u8));
+            memset(block_cast,0,new_block_len* sizeof(*block_cast));
+            memcpy(block_cast, (to_compress->leaf_data)+i, block_len*sizeof(*block_cast));
+            u32 tmp;
+            //words_from_little_endian_bytes(block_cast, block_words, new_block_len);
+            for(u32 k=0; k<new_block_len; k+=4){
+                tmp = (block_cast[k+3]<<24) | (block_cast[k+2]<<16) | (block_cast[k+1]<<8) | block_cast[k];
+                block_words[k/4]=tmp;
+            }
+            cudaFree(block_cast);
+            if(i==0){
+                flagger |= CHUNK_START;
+            }
+            if(i+BLOCK_LEN >= to_compress->leaf_len){
+                flagger |= CHUNK_END | out_flags;
+            }
+            d_actual_compress<<<1,1>>>(
+                chaining_value,
+                block_words,
+                to_compress->counter,
+                block_len,
+                flagger,
+                to_compress->raw_hash
+            );
+    
+            cudaFree(block_words);
+            memcpy(chaining_value,to_compress->raw_hash,8*sizeof(u32));
+            
+
+        }
     }
 }
-
 void Chunk::compress_chunk(u32 out_flags) {
     // cout << "Compress called\n";
     if(flags&PARENT) {
@@ -464,7 +445,7 @@ void Hasher::propagate() {
 
         // Move factory[level].data() to Cuda memory
         hash_many(factory[level].data(), 0, factory[level].size(), subtree);
-        cudaDeviceSynchronize();
+
         factory[level].clear();
         ++level;
         factory[level].push_back(*subtree);
@@ -507,7 +488,7 @@ void Hasher::finalize(vector<u8> &out_slice) {
                 // Move factory[i].data() to Cuda memory
                 //cout<<"iter"<<i<<endl;
                 hash_many(factory[i].data(), start, start+divider, subtree);
-                cudaDeviceSynchronize();
+        
                 subtrees.push_back(*subtree);
                 // TODO: Convert to CudaFree
                 delete subtree;
@@ -535,46 +516,41 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
-    // int idx = blockDim.x*blockIdx.x + threadIdx.x;
-    // if(idx > 0)
-    //     return;
+    int n= last-first;
+    if(n==1) {
+        d_compress<<<1,1>>>(0,d_data+first);
 
-    int n = last-first;
-    if(n==1){
-        d_data[first].g_compress_chunk();
-        memcpy(d_parent, d_data+first, sizeof(*d_parent));
+        memcpy(d_parent,d_data+first, sizeof(Chunk));
+        // cudaMemcpy(d_parent,d_data+first, sizeof(Chunk), cudaMemcpyDeviceToDevice);
+
         return;
     }
-    // printf("Calling for first : %d and last : %d\n", first, last);
     
     Chunk *left;
     cudaMalloc(&left,sizeof(Chunk));
     Chunk *right;
     cudaMalloc(&right,sizeof(Chunk));
 
-    cudaStream_t s1,s2;
+    // cudaStream_t s1,s2;
 
-    cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    d_hashmany<<<1,1,0,s1>>>(d_data, first, first+n/2, left);
-    cudaDeviceSynchronize();
+    // cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    d_hashmany<<<1,1>>>(d_data, first, first+n/2, left);
 
-    cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    d_hashmany<<<1,1,0,s2>>>(d_data, first+n/2, last, right);
-    cudaDeviceSynchronize();
+    // cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    d_hashmany<<<1,1>>>(d_data, first+n/2, last, right);
 
     d_parent->flags = left->flags | PARENT;
-    memcpy(d_parent->key, left->key, 32);
+    memcpy(d_parent->key,left->key, 32);
     memcpy(d_parent->data, left->raw_hash, 32);
     memcpy(d_parent->data+8, right->raw_hash, 32);
-    d_parent->g_compress_chunk();
-
-    cudaFree(left);
-    cudaFree(right);
+    //d_parent->compress_chunk();
+    d_compress<<<1,1>>>(0,d_parent);
 }
-
 
 // A divide and conquer approach
 void hash_many(Chunk *data, int first, int last, Chunk *parent) {
+    // call a kernel 
+    //pointers for device
     Chunk *d_data;
     Chunk *d_parent;
     
@@ -583,10 +559,11 @@ void hash_many(Chunk *data, int first, int last, Chunk *parent) {
     cudaMalloc(&d_parent,sizeof(Chunk));
 
     //populate on device
-    cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyDeviceToDevice);
 
-    d_hashmany<<<1,1>>>(d_data,first,last,d_parent);
-    cudaMemcpy(parent,d_parent,sizeof(Chunk),cudaMemcpyDeviceToHost);
+    d_hashmany<<<1,1>>>(d_data, first, last, d_parent);
+    
+    cudaMemcpy(parent,d_parent,sizeof(Chunk),cudaMemcpyDeviceToDevice);
 
     cudaFree(d_data);
     cudaFree(d_parent);

@@ -123,6 +123,7 @@ u32* compress(
 u32* first_8_words(u32 compression_output[16]) {
     u32 *cmprs = new u32[8];
     copy(compression_output, compression_output+8, cmprs);
+    delete[] compression_output;
     return cmprs;
 }
 
@@ -172,6 +173,7 @@ struct Output {
             for(u32 j=0; j<out_block.size(); j++)
                 out_slice[i+j] = out_block[j];
             ++output_block_counter;
+            delete[] words;
         }
     }
 };
@@ -226,7 +228,8 @@ void ChunkState::update(vector<u8> &input) {
                 flags | start_flag()
             );
             copy(transfer, transfer+8, chaining_value);
-
+            delete[] transfer;
+            
             blocks_compressed += 1;
             for (u32 i=0; i < BLOCK_LEN; i++)
                 block[i]=0;
