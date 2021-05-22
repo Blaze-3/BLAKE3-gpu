@@ -535,9 +535,9 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
-    // int idx = blockDim.x*blockIdx.x + threadIdx.x;
+    //  int idx = blockDim.x*blockIdx.x + threadIdx.x;
     // if(idx > 0)
-    //     return;
+    //      return;
 
     int n = last-first;
     if(n==1){
@@ -555,11 +555,11 @@ __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
     cudaStream_t s1,s2;
 
     cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    d_hashmany<<<1,1,0,s1>>>(d_data, first, first+n/2, left);
+    d_hashmany<<<32,128,0,s1>>>(d_data, first, first+n/2, left);
     cudaDeviceSynchronize();
 
     cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    d_hashmany<<<1,1,0,s2>>>(d_data, first+n/2, last, right);
+    d_hashmany<<<32,128,0,s2>>>(d_data, first+n/2, last, right);
     cudaDeviceSynchronize();
 
     d_parent->flags = left->flags | PARENT;
