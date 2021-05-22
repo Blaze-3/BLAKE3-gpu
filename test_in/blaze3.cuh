@@ -266,8 +266,7 @@ struct Chunk {
     void compress_chunk(u32=0);
 };
 __global__ void d_compress(u32 out_flags, Chunk *to_compress){
-    if((to_compress->flags)&PARENT){
-        
+    if((to_compress->flags)&PARENT){  
         //printf("%s","cuda can fuckoff");
         d_actual_compress<<<1,1>>>(
             to_compress->key,
@@ -280,7 +279,7 @@ __global__ void d_compress(u32 out_flags, Chunk *to_compress){
         cudaDeviceSynchronize();
     }
     else{
-        printf("else2 \n");
+        printf("compress a leaf \n");
         u32 *chaining_value, block_len = BLOCK_LEN, flagger;
         cudaMalloc(&chaining_value,sizeof(u32)*8);
         memcpy(chaining_value,to_compress->key,8*sizeof(u32));
@@ -536,130 +535,63 @@ void Hasher::finalize(vector<u8> &out_slice) {
     }
     hash_root(root, out_slice);
 }
-__global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent ){
-        
-        int n= last-first;
-        printf("n \n");
-        //d_data[first].compress_chunk();
-        for(int i=0;i<16;i++){
-            printf("%u ",d_data[first].raw_hash[i]);
-        }
-        d_compress<<<1,1>>>(1,d_data+first);
-        printf("=================");
+
+__global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
+    int n= last-first;
+    if(n==1) {
+        d_compress<<<1,1>>>(0,d_data+first);
         cudaDeviceSynchronize();
-        for(int i=0;i<16;i++){
-            printf("%u ",d_data[first].raw_hash[i]);
-        }
         memcpy(d_parent,d_data+first, sizeof(Chunk));
-        //*d_parent=d_data[first];
-        
+        // cudaMemcpy(d_parent,d_data+first, sizeof(Chunk), cudaMemcpyDeviceToDevice);
+        cudaDeviceSynchronize();
+        return;
+    }
     
-    // printf("d \n");
-    // Chunk *left;
-    // cudaMalloc(&left,sizeof(Chunk));
-    // Chunk *right;
-    // cudaMalloc(&right,sizeof(Chunk));
+    Chunk *left;
+    cudaMalloc(&left,sizeof(Chunk));
+    Chunk *right;
+    cudaMalloc(&right,sizeof(Chunk));
 
-    // //cudaStream_t s1,s2;
+    // cudaStream_t s1,s2;
 
-    // //cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    // d_hashmany<<<1,1>>>(d_data, first, first+n/2, left);
-    // cudaDeviceSynchronize();
+    // cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    d_hashmany<<<1,1>>>(d_data, first, first+n/2, left);
+    cudaDeviceSynchronize();
 
-    // //cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    // d_hashmany<<<1,1>>>(d_data, first+n/2, last, right);
-    // cudaDeviceSynchronize();
+    // cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    d_hashmany<<<1,1>>>(d_data, first+n/2, last, right);
+    cudaDeviceSynchronize();
 
-    // d_parent->flags = left->flags | PARENT;
-    // memcpy(d_parent->key,left->key, 32);
-    // memcpy(d_parent->data, left->raw_hash, 32);
-    // memcpy(d_parent->data+8, right->raw_hash, 32);
-    // //d_parent->compress_chunk();
-    // d_compress<<<1,1>>>(0,d_parent);
-    // cudaDeviceSynchronize();
-
+    d_parent->flags = left->flags | PARENT;
+    memcpy(d_parent->key,left->key, 32);
+    memcpy(d_parent->data, left->raw_hash, 32);
+    memcpy(d_parent->data+8, right->raw_hash, 32);
+    //d_parent->compress_chunk();
+    d_compress<<<1,1>>>(0,d_parent);
+    cudaDeviceSynchronize();
 }
-
 
 // A divide and conquer approach
 void hash_many(Chunk *data, int first, int last, Chunk *parent) {
-    
-    /*
-    // n will always be a power of 2
-    int n = last-first;
-    if(n == 1) {
-        data[first].compress_chunk();
-        // move all elements to parent
-
-        // TODO: convert to cudaMemcpy
-        memcpy(parent, data+first, sizeof(*parent));
-        return;
-    }
-
-    // These should probably be allocated on CUDA memory I think
-    // These will be made on the executable's stack. Is that stack on CUDA mem?
-    Chunk left;
-    Chunk right;
-    // parallelism here
-
-    // cudaStream_t s1, s2;
-    // left and right computation can be done simultaneously
-    hash_many(data, first, first+n/2, &left);
-    hash_many(data, first+n/2, last, &right);
-    
-    // cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    // hash_many<<<..., s1 >>>(data, first, first+n/2, &left);
-
-    // cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    // hash_many<<<..., s2 >>>(data, first+n/2, last, &right);
-
-    // parallelism ends
-
-    parent->flags = left.flags | PARENT;
-    // 32 bytes need to be copied for all of these
-    // TODO: convert to cudaMemcpy
-    memcpy(parent->key, left.key, 32);
-    memcpy(parent->data, left.raw_hash, 32);
-    memcpy(parent->data+8, right.raw_hash, 32);
-
-    parent->compress_chunk();*/
-
-    //copy all the data
-    
     // call a kernel 
     //pointers for device
     Chunk *d_data;
     Chunk *d_parent;
-    //Chunk *checker=(Chunk*)malloc(sizeof(Chunk));
     
     //allocate on device
     cudaMalloc(&d_data,sizeof(Chunk)*(last-first));
     cudaMalloc(&d_parent,sizeof(Chunk));
-    
-    //cout<<data[0].raw_hash[1]<<endl;
 
     //populate on device
-    cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyHostToDevice);
-    
-
-    //cudaMemcpy(checker,d_data,sizeof(Chunk)*(last-first),cudaMemcpyDeviceToHost);
-
-
-    //cout<<checker[0].raw_hash[1]<<endl;  
-    //cout.flush(); 
-    
-    //cout<<last-first<<endl;
-    d_hashmany<<<1,1>>>(d_data,first,last,d_parent);
+    cudaMemcpy(d_data,data,sizeof(Chunk)*(last-first),cudaMemcpyDeviceToDevice);
     cudaDeviceSynchronize();
+
+    d_hashmany<<<1,1>>>(d_data, first, last, d_parent);
     
-    cudaMemcpy(parent,d_parent,sizeof(Chunk),cudaMemcpyDeviceToHost);
+    cudaMemcpy(parent,d_parent,sizeof(Chunk),cudaMemcpyDeviceToDevice);
 
     cudaFree(d_data);
     cudaFree(d_parent);
-    // cout<<check<<endl;
-    // cout<<check_2<<endl;
-    // cout<<"_______"<<endl;
-
 }
 
 Chunk merge(Chunk &left, Chunk &right) {

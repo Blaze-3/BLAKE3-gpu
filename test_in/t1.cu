@@ -55,6 +55,7 @@ int main(){
         state_cpu[i]=rand() % 100 + 1; 
         state_check[i]=state_cpu[i];  
     }
+
     cudaMalloc(&state_gpu,sizeof(u32)*16);
     cudaMemcpy(state_gpu,state_cpu,sizeof(32)*16,cudaMemcpyHostToDevice);
     //u32* state_cpu_check=(u32*) malloc(sizeof(32)*16);
@@ -73,28 +74,6 @@ int main(){
         cout<<"g passed!"<<endl;
     }
     cudaFree(state_gpu);
-
-//checking actual compress
-
-    // u32* state_gpu;
-    // u32* state_cpu=(u32*) malloc(sizeof(32)*16);
-    // u32 state_check[16];
-    // for(int i=0;i<16;i++){
-    //     state_cpu[i]=rand() % 100 + 1; 
-    //     state_check[i]=state_cpu[i];  
-    // }
-    // cudaMalloc(&state_gpu,sizeof(u32)*16);
-    // cudaMemcpy(state_gpu,state_cpu,sizeof(32)*16,cudaMemcpyHostToDevice);
-
-    // u32* chain_gpu;
-    // u32* chain_cpu=(u32*) malloc(sizeof(32)*16);
-    // u32 state_check[16];
-    // for(int i=0;i<16;i++){
-    //     state_cpu[i]=rand() % 100 + 1; 
-    //     state_check[i]=state_cpu[i];  
-    // }
-    // cudaMalloc(&state_gpu,sizeof(u32)*16);
-    // cudaMemcpy(state_gpu,state_cpu,sizeof(32)*16,cudaMemcpyHostToDevice);
 
     //testing compress
     Chunk* chunk_cpu;
@@ -153,30 +132,27 @@ int main(){
       
     srand(42);
     for(int k=0;k<size_array;k++){
-         
-    for (int i=0; i<1024; i++)
-    {    r = rand() % 10;   
-         c =  '0'+r; 
-         chunk_cpu_arr[k].leaf_data[i]=c;    
+        for (int i=0; i<1024; i++)
+        {    r = rand() % 10;   
+            c =  '0'+r; 
+            chunk_cpu_arr[k].leaf_data[i]=c;    
+        }
+        chunk_cpu_arr[k].leaf_len=1024;
+        for(int i=0; i<16; i++){
+            chunk_cpu_arr[k].data[i]=rand() % 10;
+            chunk_cpu_arr[k].raw_hash[i]=rand() % 10;
+            chunk_cpu_arr[k].key[i%8]=rand() % 10;   
+        }
+        chunk_cpu_arr[k].flags=1;
     }
-    chunk_cpu_arr[k].leaf_len=1024;
-    for(int i=0; i<16; i++){
-        chunk_cpu_arr[k].data[i]=rand() % 10;
-        chunk_cpu_arr[k].raw_hash[i]=rand() % 10;
-        chunk_cpu_arr[k].key[i%8]=rand() % 10;   
-    }
-    chunk_cpu_arr[k].flags=1;
-    }
-    for(int i=0;i<16;i++){
-        printf("%u ",chunk_cpu_arr->raw_hash[i]);
-    }
-    printf("_____________");
+
     cudaMemcpy(chunk_gpu_arr,chunk_cpu_arr,size_array*sizeof(Chunk),cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
-    d_hashmany<<<1,1>>>(chunk_gpu_arr,0,size_array,res_gpu);
+    // printf("ptr: 0x%p\n", chunk_gpu_arr);
+    hash_many(chunk_gpu_arr,0,size_array,res_gpu);
     cudaDeviceSynchronize();
-    cudaMemcpy(chunk_gpu_arr2,chunk_gpu_arr,sizeof(Chunk),cudaMemcpyDeviceToDevice);
-    d_compress<<<1,1>>>(1,chunk_gpu_arr2);
+    // cudaMemcpy(chunk_gpu_arr2,chunk_gpu_arr,sizeof(Chunk),cudaMemcpyDeviceToDevice);
+    // d_compress<<<1,1>>>(0,chunk_gpu_arr2);
     cudaDeviceSynchronize();
     cudaMemcpy(res_cpu,res_gpu,sizeof(Chunk),cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
@@ -188,11 +164,22 @@ int main(){
     for(int i=0;i<16;i++){
         if(checker_many.raw_hash[i]!=res_cpu->raw_hash[i]){
             bob=0;
+            // cout << "Does not match at : " << i << endl;
         }
-        cout<< checker_many.raw_hash[i]<<":"<<res_cpu->raw_hash[i]<<":"<<res_cpu2->raw_hash[i]<<endl;
+        // cout<< checker_many.raw_hash[i]<<":"<<res_cpu->raw_hash[i]<<":"<<res_cpu2->raw_hash[i]<<endl;
     }
     if(bob){
         cout<<"hashmay passed!"<<endl;
     }
+
+    printf("GPU hash:\n");
+    for(int i=0; i<8; i++)
+        printf("%02x", res_cpu->raw_hash[i]);
+    printf("\n");
+
+    printf("Real hash:\n");
+    for(int i=0; i<8; i++)
+        printf("%02x", checker_many.raw_hash[i]);
+    printf("\n");
 
 }
