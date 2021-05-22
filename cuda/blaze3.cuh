@@ -516,13 +516,14 @@ void Hasher::finalize(vector<u8> &out_slice) {
 }
 
 __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
-    int n= last-first;
-    if(n==1) {
-        d_compress<<<1,1>>>(0,d_data+first);
+    //  int idx = blockDim.x*blockIdx.x + threadIdx.x;
+    // if(idx > 0)
+    //      return;
 
-        memcpy(d_parent,d_data+first, sizeof(Chunk));
-        // cudaMemcpy(d_parent,d_data+first, sizeof(Chunk), cudaMemcpyDeviceToDevice);
-
+    int n = last-first;
+    if(n==1){
+        d_data[first].g_compress_chunk();
+        memcpy(d_parent, d_data+first, sizeof(*d_parent));
         return;
     }
     
@@ -533,11 +534,13 @@ __global__ void d_hashmany(Chunk *d_data, int first, int last, Chunk* d_parent){
 
     // cudaStream_t s1,s2;
 
-    // cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
-    d_hashmany<<<1,1>>>(d_data, first, first+n/2, left);
+    cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+    d_hashmany<<<32,128,0,s1>>>(d_data, first, first+n/2, left);
+    cudaDeviceSynchronize();
 
-    // cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
-    d_hashmany<<<1,1>>>(d_data, first+n/2, last, right);
+    cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+    d_hashmany<<<32,128,0,s2>>>(d_data, first+n/2, last, right);
+    cudaDeviceSynchronize();
 
     d_parent->flags = left->flags | PARENT;
     memcpy(d_parent->key,left->key, 32);
