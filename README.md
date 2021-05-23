@@ -1,5 +1,6 @@
 # BLAKE3-gpu
-Parallelizing the BLAKE3 crypto hash function via the merkle tree structure
+Parallelizing the BLAKE3 crypto hash function via its merkle tree structure.  
+Check [Presentation](./final-presentation.pdf) for a complete explanation.
 
 ### Current best speedup :zap: -> 4.5x at 1.07 GiB/s on an octacore
 
