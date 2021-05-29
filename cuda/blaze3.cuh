@@ -189,30 +189,6 @@ __device__ void Chunk::g_compress_chunk(u32 out_flags) {
     }
 }
 
-__global__ void h_compute(Chunk *gdata, int N, int jump) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x, tid_copy;
-    tid_copy = tid;
-    tid *= jump;
-    if(tid >= N)
-        return;
-
-    // shared memory for compute
-    __shared__ Chunk sdata[NUM_THREADS];
-    // block local thread ID
-    int bl_tid = threadIdx.x;
-
-    sdata[bl_tid] = gdata[tid];
-    sdata[bl_tid].g_compress_chunk();
-
-    bool b = (tid_copy&1); // true is right, false is left
-    gdata[tid].flags |= PARENT;
-    g_memcpy(gdata[tid-jump*b].data+8*b, sdata[bl_tid].raw_hash, 32);
-}
-
-__global__ void nice(Chunk *lul) {
-    lul->flags |= PARENT;
-}
-
 __global__ void compute(Chunk *data, int l, int r) {
     // n is always a power of 2
     int n = r-l;
@@ -225,13 +201,11 @@ __global__ void compute(Chunk *data, int l, int r) {
         // printf("Compressing : %d\n", l);
     }
     else {
-        compute<<<1,1>>>(data, l, l+n/2);
+        compute<<<n/2,16>>>(data, l, l+n/2);
         cudaDeviceSynchronize();
-        compute<<<1,1>>>(data, l+n/2, r);
+        compute<<<n/2,16>>>(data, l+n/2, r);
         cudaDeviceSynchronize();
 
-        // nice<<<1,1>>>(data+l);
-        // cudaDeviceSynchronize();
         data[l].flags |= PARENT;
 
         memcpy(data[l].data, data[l].raw_hash, 32);
@@ -252,7 +226,8 @@ void light_hash(Chunk *data, int N, Chunk *result, Chunk *memory_bar) {
     Chunk *g_data = memory_bar;
     cudaMemcpy(g_data, data, data_size, cudaMemcpyHostToDevice);
 
-    compute<<<1,1>>>(g_data, 0, N);
+    // Actual computation of hash
+    compute<<<N,32>>>(g_data, 0, N);
 
     cudaMemcpy(result, g_data, sizeof(Chunk), cudaMemcpyDeviceToHost);
 }
