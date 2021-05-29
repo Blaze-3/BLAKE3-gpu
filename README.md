@@ -21,5 +21,5 @@ All of this is possible due to our new algorithm - Blaze3.
 - A full copy of the original reference implementation is in `testing`.
 - The blake3 paper is also here for reference.  
 - Openmp work in `openmp`. This version is maxed out for efficency.
-- Cuda work in `cuda`.
+- Cuda work in `cuda`. This version uses dynamic parallelism.
 - Dark cuda work happens in `dark`.
