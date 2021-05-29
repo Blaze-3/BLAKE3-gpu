@@ -1,4 +1,4 @@
-name: Dark test
+name: Cuda test
 
 # Controls when the action will run. 
 on:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./dark
+        working-directory: ./cuda
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -44,7 +44,7 @@ jobs:
           
       - name: Build project
         run: |
-          nvcc -std=c++17 main.cu
+          nvcc -std=c++17 -rdc=true main.cu
           
       - name: Test algorithm
         run: |
