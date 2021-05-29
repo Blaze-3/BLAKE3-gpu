@@ -282,7 +282,12 @@ struct Hasher {
     void init();
     // frees cuda memory (if it is there)
     // free nullptr is a no-op
-    ~Hasher() { memory_bar ? cudaFree(memory_bar) : free(memory_bar) ;}
+    ~Hasher() { 
+        if(memory_bar)
+            cudaFree(memory_bar); 
+        else
+            free(memory_bar);
+    }
 
     void update(char *input, int size);
     void finalize(vector<u8> &out_slice);
