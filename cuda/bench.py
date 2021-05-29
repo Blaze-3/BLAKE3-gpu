@@ -33,6 +33,10 @@ if raw_file_size[-1].isalpha():
 else:
     file_size = int(raw_file_size)
 if not Path(FILE_TO_HASH).exists() or Path(FILE_TO_HASH).stat().st_size != file_size:
+    choice = input("Could not find the file you wanted. Want to make a new one? (y/n): ")
+    if choice.lower()[0] == 'n':
+        print("Got it. Bye!")
+        exit(0)
     with open(FILE_TO_HASH, 'wb') as wire:
         wire.write(os.urandom(file_size))
     print("Made a new file")
@@ -65,7 +69,7 @@ if sys.argv[2] in {"seq", "all"}:
     print(result)
     end = time.time()
     exec_time = end-start
-    print("\x1b[35m", f"Sequential execution time: {exec_time:.2f}s", "\033[0m")
+    print("\x1b[35m", f"V-omp execution time: {exec_time:.2f}s", "\033[0m")
 
 if sys.argv[2] in {"og", "all"}:
     start = time.time()

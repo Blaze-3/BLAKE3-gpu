@@ -39,13 +39,3 @@ def test_vector(lenx, hashx):
     result = process.stdout.decode().strip()
     os.remove('test.bin')
     assert result == hashx[:64]
-
-
-if __name__ == "__main__":
-    for lenx, hashx in test_cases:
-        try:
-            test_vector(lenx, hashx)
-        except AssertionError as e:
-            print(lenx)
-        else:
-            print("Passed", lenx)

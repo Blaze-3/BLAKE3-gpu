@@ -2,7 +2,7 @@
 
 ## Usage
 How to use:  
-* Run `nvcc main.cu`
+* Run `nvcc -std=c++17 -rdc=true main.cu`
 * Execute the file as `./a.{exe, out} input_file`   
 
 ## Testing
